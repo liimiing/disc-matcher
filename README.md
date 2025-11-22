@@ -32,6 +32,28 @@ pip install -r requirements.txt
 python disc_matcher.py
 ```
 
+==========================================
+Discogs Token 配置说明
+==========================================
+
+1. 打开 disc_matcher.py 文件
+
+2. 找到第162行左右的这一行：
+   DISCOGS_TOKEN = "YOUR_DISCOGS_TOKEN_HERE"
+
+3. 将 "YOUR_DISCOGS_TOKEN_HERE" 替换为你的Discogs Token
+
+4. 获取Token的方法：
+   - 访问：https://www.discogs.com/settings/developers
+   - 登录你的Discogs账号
+   - 点击 "Generate new token"
+   - 复制生成的Token（只显示一次，请妥善保存）
+
+5. 配置完成后，运行程序时界面会显示 "Token状态: 已配置"（绿色）
+
+示例：
+DISCOGS_TOKEN = "abc123xyz456your_token_here"
+
 ## 使用方法
 
 1. **获取Discogs Token**:
