@@ -22,7 +22,7 @@ from typing import List, Dict, Optional, Tuple
 from datetime import datetime
 import threading
 from urllib.parse import quote
-from PIL import Image
+from PIL import Image, ImageTk
 import io
 import openpyxl
 from openpyxl.styles import Font, Alignment, PatternFill
@@ -171,13 +171,80 @@ class AlbumInfo:
             '国家': self.country,
             '曲目表': self.tracklist
         }
+    
+    @classmethod
+    def from_dict(cls, data: Dict) -> 'AlbumInfo':
+        """从字典创建AlbumInfo对象（用于从JSON加载）"""
+        # 处理标题，确保格式正确
+        artist = data.get('音乐人', '').strip()
+        album_name = data.get('专辑名', '').strip()
+        if artist and album_name:
+            title = f"{artist} - {album_name}"
+        elif album_name:
+            title = album_name
+        elif artist:
+            title = artist
+        else:
+            title = ''
+        
+        # 处理音乐风格和风格标签
+        genre_str = data.get('音乐风格', '')
+        if isinstance(genre_str, list):
+            genre = genre_str
+        elif genre_str:
+            genre = [g.strip() for g in genre_str.split(',') if g.strip()]
+        else:
+            genre = []
+        
+        style_str = data.get('风格标签', '')
+        if isinstance(style_str, list):
+            style = style_str
+        elif style_str:
+            style = [s.strip() for s in style_str.split(',') if s.strip()]
+        else:
+            style = []
+        
+        # 处理唱片厂牌
+        label_str = data.get('唱片厂牌', '')
+        if isinstance(label_str, list):
+            label = [{'name': str(l)} for l in label_str]
+        elif label_str:
+            label = [{'name': name.strip()} for name in label_str.split(',') if name.strip()]
+        else:
+            label = []
+        
+        # 创建一个临时的release_data结构
+        release_data = {
+            'id': data.get('Discogs ID'),
+            'title': title,
+            'year': str(data.get('出版年份', '')) if data.get('出版年份') else '',
+            'catno': data.get('厂牌编号', ''),
+            'country': data.get('国家', ''),
+            'genre': genre,
+            'style': style,
+            'label': label,
+            'cover_image': '',  # JSON中不保存图片URL，因为图片已下载
+            'thumb': ''
+        }
+        
+        album_info = cls(release_data)
+        album_info.notes = data.get('备注信息', '')
+        
+        # 处理曲目表
+        tracklist_data = data.get('曲目表', [])
+        if isinstance(tracklist_data, list):
+            album_info.tracklist = tracklist_data
+        else:
+            album_info.tracklist = []
+        
+        return album_info
 
 
 class DiscMatcherApp:
     """主应用程序"""
     
     # Discogs Token - 请在这里填入你的Token
-    DISCOGS_TOKEN = "YOUR_DISCOGS_TOKEN_HERE"
+    DISCOGS_TOKEN = "WjzqFqSmpNdGLjWgESMTyGlWcYuNKSSFpGJkwdQE"
     
     def __init__(self, root):
         self.root = root
@@ -272,17 +339,50 @@ class DiscMatcherApp:
         self.album_folders = []
         self.tree.delete(*self.tree.get_children())
         
+        loaded_count = 0
+        
         try:
             # 直接扫描选择文件夹下的所有子文件夹
-            for item in self.root_folder.iterdir():
+            for idx, item in enumerate(self.root_folder.iterdir()):
                 if item.is_dir():
                     folder_name = item.name
-                    self.album_folders.append((item, folder_name, None))
-                    self.tree.insert('', tk.END, values=(
-                        folder_name, '', '', '', '待处理', ''
-                    ))
+                    album_info = None
+                    status = '待处理'
+                    
+                    # 检查是否有已处理的JSON文件
+                    json_path = item / "album_info.json"
+                    if json_path.exists():
+                        try:
+                            with open(json_path, 'r', encoding='utf-8') as f:
+                                json_data = json.load(f)
+                                album_info = AlbumInfo.from_dict(json_data)
+                                status = '已完成'
+                                loaded_count += 1
+                        except Exception as e:
+                            print(f"加载JSON文件失败 {json_path}: {e}")
+                            # 如果加载失败，继续作为待处理
+                    
+                    self.album_folders.append((item, folder_name, album_info))
+                    
+                    # 根据是否有专辑信息显示不同的值
+                    if album_info:
+                        self.tree.insert('', tk.END, values=(
+                            folder_name,
+                            album_info.artist,
+                            album_info.album_name,
+                            album_info.year,
+                            status,
+                            album_info.get_suggested_folder_name()
+                        ))
+                    else:
+                        self.tree.insert('', tk.END, values=(
+                            folder_name, '', '', '', status, ''
+                        ))
             
-            self.status_var.set(f"找到 {len(self.album_folders)} 个文件夹")
+            status_msg = f"找到 {len(self.album_folders)} 个文件夹"
+            if loaded_count > 0:
+                status_msg += f"，已加载 {loaded_count} 个已处理记录"
+            self.status_var.set(status_msg)
         except Exception as e:
             messagebox.showerror("错误", f"扫描文件夹时出错: {e}")
             self.status_var.set("扫描失败")
@@ -512,11 +612,17 @@ class DiscMatcherApp:
                 ''
             )
         
-        # 找到对应的item并更新
-        for item in self.tree.get_children():
-            if self.tree.item(item, 'values')[0] == folder_name:
-                self.tree.item(item, values=values)
-                break
+        # 通过索引直接获取对应的树视图项
+        children = list(self.tree.get_children())
+        if 0 <= idx < len(children):
+            item = children[idx]
+            self.tree.item(item, values=values)
+        else:
+            # 如果索引不匹配，回退到名称匹配方式
+            for item in self.tree.get_children():
+                if self.tree.item(item, 'values')[0] == folder_name:
+                    self.tree.item(item, values=values)
+                    break
     
     def update_status(self, message: str):
         """更新状态栏"""
@@ -542,17 +648,58 @@ class DiscMatcherApp:
         values = self.tree.item(item, 'values')
         folder_name = values[0]
         
-        # 找到对应的专辑信息
+        # 找到对应的专辑信息和文件夹路径
         for folder_path, name, album_info in self.album_folders:
-            if name == folder_name and album_info:
-                self.show_details_dialog(album_info)
+            if name == folder_name:
+                if album_info:
+                    self.show_details_dialog(album_info, folder_path)
+                else:
+                    messagebox.showinfo("提示", "该文件夹尚未处理，没有专辑信息")
                 break
     
-    def show_details_dialog(self, album_info: AlbumInfo):
+    def show_details_dialog(self, album_info: AlbumInfo, folder_path: Path):
         """显示详情对话框"""
         dialog = tk.Toplevel(self.root)
         dialog.title("专辑详情")
-        dialog.geometry("500x600")
+        dialog.geometry("600x700")
+        
+        # 检查文件夹中是否有封面图片
+        cover_image_path = None
+        cover_extensions = ['cover.jpg', 'cover.png', 'cover.jpeg', 'cover.gif', 'cover.webp']
+        for ext in cover_extensions:
+            test_path = folder_path / ext
+            if test_path.exists():
+                cover_image_path = test_path
+                break
+        
+        # 如果没有找到cover，尝试找image_1等
+        if not cover_image_path:
+            for ext in ['jpg', 'png', 'jpeg', 'gif', 'webp']:
+                test_path = folder_path / f"image_1.{ext}"
+                if test_path.exists():
+                    cover_image_path = test_path
+                    break
+        
+        # 如果有封面图片，在顶部显示
+        if cover_image_path:
+            try:
+                # 使用PIL加载图片并调整大小
+                img = Image.open(cover_image_path)
+                # 限制最大尺寸为300x300
+                img.thumbnail((300, 300), Image.Resampling.LANCZOS)
+                
+                # 转换为tkinter可用的格式
+                photo = ImageTk.PhotoImage(img)
+                
+                # 创建图片标签
+                image_frame = ttk.Frame(dialog)
+                image_frame.pack(pady=10)
+                
+                image_label = ttk.Label(image_frame, image=photo)
+                image_label.image = photo  # 保持引用
+                image_label.pack()
+            except Exception as e:
+                print(f"加载封面图片失败: {e}")
         
         text_widget = tk.Text(dialog, wrap=tk.WORD, padx=10, pady=10)
         text_widget.pack(fill=tk.BOTH, expand=True)
@@ -632,7 +779,7 @@ Discogs ID: {album_info.release_id}
             return
         
         # 找到对应的文件夹
-        for folder_path, name, album_info in self.album_folders:
+        for idx, (folder_path, name, album_info) in enumerate(self.album_folders):
             if name == folder_name:
                 # 确保名称已清理（双重保险）
                 if album_info:
@@ -649,8 +796,15 @@ Discogs ID: {album_info.release_id}
                 
                 try:
                     folder_path.rename(new_path)
+                    # 更新album_folders中的路径和名称，保留专辑信息
+                    self.album_folders[idx] = (new_path, cleaned_name, album_info)
+                    
+                    # 更新树视图中的显示
+                    self.update_tree_item(idx, status='已完成' if album_info else '待处理', 
+                                         album_info=album_info, 
+                                         suggested=cleaned_name if album_info else '')
+                    
                     messagebox.showinfo("成功", f"文件夹已重命名为: {cleaned_name}")
-                    self.scan_folders()  # 重新扫描
                 except Exception as e:
                     messagebox.showerror("错误", f"重命名失败: {e}")
                 break
@@ -661,7 +815,10 @@ Discogs ID: {album_info.release_id}
         skipped_count = 0
         error_count = 0
         
-        for folder_path, folder_name, album_info in self.album_folders:
+        # 使用索引遍历，以便更新列表
+        for idx in range(len(self.album_folders)):
+            folder_path, folder_name, album_info = self.album_folders[idx]
+            
             if not album_info:
                 continue
             
@@ -678,6 +835,12 @@ Discogs ID: {album_info.release_id}
             
             try:
                 folder_path.rename(new_path)
+                # 更新album_folders中的路径和名称，保留专辑信息
+                self.album_folders[idx] = (new_path, suggested_name, album_info)
+                
+                # 更新树视图中的显示
+                self.update_tree_item(idx, status='已完成', album_info=album_info, suggested=suggested_name)
+                
                 rename_count += 1
             except Exception as e:
                 error_count += 1
@@ -685,9 +848,6 @@ Discogs ID: {album_info.release_id}
         
         messagebox.showinfo("批量重命名完成", 
             f"成功: {rename_count}\n跳过: {skipped_count}\n失败: {error_count}")
-        
-        if rename_count > 0:
-            self.scan_folders()  # 重新扫描
     
     def open_folder(self):
         """打开文件夹"""
@@ -792,5 +952,4 @@ def main():
 
 if __name__ == "__main__":
     main()
-
 
