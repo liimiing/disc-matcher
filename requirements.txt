@@ -1,0 +1,20 @@
+# Discogs 音乐专辑匹配器 - 依赖包列表
+# 安装方法: pip install -r requirements.txt
+# 或使用虚拟环境: python -m venv .venv && .venv\Scripts\activate && pip install -r requirements.txt
+
+# HTTP请求库，用于调用Discogs API
+requests>=2.31.0
+
+# 图片处理库，用于下载和保存专辑封面图片
+Pillow>=10.0.0
+
+# Excel文件操作库，用于导出专辑信息到xlsx文件
+openpyxl>=3.1.0
+
+# 注意：
+# - tkinter 是Python标准库，通常已包含在Python安装中
+# - 如果遇到tkinter导入错误，请根据系统安装：
+#   Ubuntu/Debian: sudo apt-get install python3-tk
+#   Fedora/RHEL: sudo dnf install python3-tkinter
+#   macOS: 通常已包含，如无则通过Homebrew安装
+#   Windows: 通常已包含在Python安装中
