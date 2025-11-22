@@ -266,14 +266,104 @@ class DiscMatcherApp:
     
     def setup_ui(self):
         """设置用户界面"""
+        # 深空灰色主题配色
+        self.bg_color = "#1E1E1E"  # 主背景色（深空灰）
+        self.secondary_bg = "#2D2D2D"  # 次要背景色
+        self.accent_bg = "#3C3C3C"  # 强调背景色
+        self.text_color = "#E0E0E0"  # 文本颜色
+        self.accent_color = "#4A9EFF"  # 强调色（蓝色）
+        self.success_color = "#4CAF50"  # 成功色（绿色）
+        self.error_color = "#F44336"  # 错误色（红色）
+        
+        # 设置根窗口背景
+        self.root.configure(bg=self.bg_color)
+        
+        # 配置ttk样式
+        style = ttk.Style()
+        style.theme_use('clam')
+        
+        # 配置Frame样式
+        style.configure('TFrame', background=self.bg_color)
+        style.configure('Toolbar.TFrame', background=self.secondary_bg)
+        
+        # 配置Label样式
+        style.configure('TLabel', background=self.bg_color, foreground=self.text_color)
+        style.configure('Status.TLabel', background=self.secondary_bg, foreground=self.text_color)
+        
+        # 配置Button样式
+        style.configure('TButton', 
+                        background=self.accent_bg,
+                        foreground=self.text_color,
+                        borderwidth=0,
+                        focuscolor='none',
+                        bordercolor=self.secondary_bg,
+                        lightcolor=self.accent_bg,
+                        darkcolor=self.accent_bg)
+        style.map('TButton',
+                  background=[('active', self.accent_color), ('pressed', '#3A8EEF')],
+                  foreground=[('active', 'white')],
+                  bordercolor=[('active', self.secondary_bg), ('pressed', self.secondary_bg)])
+        
+        # 配置Progressbar样式
+        style.configure('TProgressbar',
+                        background=self.accent_color,
+                        troughcolor=self.secondary_bg,
+                        borderwidth=0,
+                        lightcolor=self.accent_color,
+                        darkcolor=self.accent_color)
+        
+        # 配置Treeview样式 - 移除白色边框
+        style.configure('Treeview',
+                       background=self.secondary_bg,
+                       foreground=self.text_color,
+                       fieldbackground=self.secondary_bg,
+                       borderwidth=0,
+                       bordercolor=self.secondary_bg)
+        style.configure('Treeview.Heading',
+                       background=self.accent_bg,
+                       foreground=self.text_color,
+                       relief='flat',
+                       borderwidth=0,
+                       bordercolor=self.secondary_bg)
+        style.map('Treeview',
+                  background=[('selected', self.accent_color)],
+                  foreground=[('selected', 'white')])
+        
+        # 配置自定义Treeview样式（用于移除白色边框）
+        style.configure('Custom.Treeview',
+                       background=self.secondary_bg,
+                       foreground=self.text_color,
+                       fieldbackground=self.secondary_bg,
+                       borderwidth=0,
+                       bordercolor=self.secondary_bg)
+        style.configure('Custom.Treeview.Heading',
+                       background=self.accent_bg,
+                       foreground=self.text_color,
+                       relief='flat',
+                       borderwidth=0,
+                       bordercolor=self.secondary_bg)
+        style.map('Custom.Treeview',
+                  background=[('selected', self.accent_color)],
+                  foreground=[('selected', 'white')])
+        
+        # 配置Scrollbar样式
+        style.configure('TScrollbar',
+                        background=self.accent_bg,
+                        troughcolor=self.secondary_bg,
+                        borderwidth=0,
+                        arrowcolor=self.text_color,
+                        bordercolor=self.secondary_bg,
+                        lightcolor=self.accent_bg,
+                        darkcolor=self.accent_bg)
+        
         # 顶部工具栏
-        toolbar = ttk.Frame(self.root, padding="10")
+        toolbar = ttk.Frame(self.root, padding="10", style='Toolbar.TFrame')
         toolbar.pack(fill=tk.X)
         
         # 显示Token状态
         token_status = "已配置" if (self.DISCOGS_TOKEN and self.DISCOGS_TOKEN != "YOUR_DISCOGS_TOKEN_HERE") else "未配置"
-        token_color = "green" if token_status == "已配置" else "red"
-        token_label = ttk.Label(toolbar, text=f"Token状态: {token_status}", foreground=token_color)
+        token_color = self.success_color if token_status == "已配置" else self.error_color
+        token_label = ttk.Label(toolbar, text=f"Token状态: {token_status}", foreground=token_color, background=self.secondary_bg)
         token_label.pack(side=tk.LEFT, padx=5)
         
         ttk.Button(toolbar, text="选择文件夹", command=self.select_folder).pack(side=tk.LEFT, padx=5)
@@ -288,7 +378,7 @@ class DiscMatcherApp:
         
         # 状态栏
         self.status_var = tk.StringVar(value="就绪")
-        status_bar = ttk.Label(self.root, textvariable=self.status_var, relief=tk.SUNKEN)
+        status_bar = ttk.Label(self.root, textvariable=self.status_var, relief='flat', style='Status.TLabel')
         status_bar.pack(side=tk.BOTTOM, fill=tk.X)
         
         # 主内容区域
@@ -297,7 +387,25 @@ class DiscMatcherApp:
         
         # 创建Treeview显示列表
         columns = ('文件夹名', '音乐人', '专辑名', '年份', '状态', '建议名称')
-        self.tree = ttk.Treeview(main_frame, columns=columns, show='headings', height=20)
+        
+        # 配置自定义Treeview样式，移除白色边框
+        style.configure('Custom.Treeview',
+                       background=self.secondary_bg,
+                       foreground=self.text_color,
+                       fieldbackground=self.secondary_bg,
+                       borderwidth=0,
+                       bordercolor=self.secondary_bg)
+        style.configure('Custom.Treeview.Heading',
+                       background=self.accent_bg,
+                       foreground=self.text_color,
+                       relief='flat',
+                       borderwidth=0,
+                       bordercolor=self.secondary_bg)
+        style.map('Custom.Treeview',
+                  background=[('selected', self.accent_color)],
+                  foreground=[('selected', 'white')])
+        
+        self.tree = ttk.Treeview(main_frame, columns=columns, show='headings', height=20, style='Custom.Treeview')
         
         for col in columns:
             self.tree.heading(col, text=col)
@@ -313,8 +421,22 @@ class DiscMatcherApp:
         self.tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
         
-        # 右键菜单
-        self.context_menu = tk.Menu(self.root, tearoff=0)
+        # 移除Treeview的白色高亮边框（通过底层widget配置）
+        try:
+            # 获取Treeview的底层widget并移除高亮
+            for widget in self.tree.winfo_children():
+                if isinstance(widget, tk.Widget):
+                    widget.configure(highlightthickness=0, highlightbackground=self.secondary_bg)
+        except:
+            pass
+        
+        # 右键菜单（需要单独设置颜色）
+        self.context_menu = tk.Menu(self.root, tearoff=0,
+                                    bg=self.secondary_bg,
+                                    fg=self.text_color,
+                                    activebackground=self.accent_color,
+                                    activeforeground='white',
+                                    selectcolor=self.accent_bg)
         self.context_menu.add_command(label="查看详情", command=self.view_details)
         self.context_menu.add_command(label="选择专辑", command=self.select_album)
         self.context_menu.add_command(label="重命名文件夹", command=self.rename_folder)
@@ -323,6 +445,58 @@ class DiscMatcherApp:
         
         self.tree.bind("<Button-3>", self.show_context_menu)
         self.tree.bind("<Double-1>", self.on_double_click)
+    
+    def show_toast(self, message: str, duration: int = 2000):
+        """显示渐隐渐现的提示消息"""
+        toast = tk.Toplevel(self.root)
+        toast.overrideredirect(True)  # 移除窗口装饰
+        
+        # 深蓝色背景
+        toast_bg = "#1E3A5F"  # 深蓝色
+        toast.configure(bg=toast_bg)
+        
+        # 设置窗口大小和位置（居中显示）
+        toast.update_idletasks()
+        width = 300
+        height = 80
+        x = (toast.winfo_screenwidth() // 2) - (width // 2)
+        y = (toast.winfo_screenheight() // 2) - (height // 2)
+        toast.geometry(f'{width}x{height}+{x}+{y}')
+        
+        # 创建标签（使用深蓝色背景）
+        label = tk.Label(toast, 
+                        text=message,
+                        bg=toast_bg,
+                        fg='white',  # 白色文字在深蓝背景上更清晰
+                        font=('Arial', 11),
+                        padx=20,
+                        pady=20)
+        label.pack(fill=tk.BOTH, expand=True)
+        
+        # 初始透明度
+        toast.attributes('-alpha', 0.0)
+        
+        # 渐显动画
+        def fade_in(step=0):
+            if step <= 10:
+                alpha = step / 10.0
+                toast.attributes('-alpha', alpha)
+                toast.after(20, lambda: fade_in(step + 1))
+            else:
+                # 等待指定时间后开始渐隐
+                toast.after(duration, fade_out)
+        
+        # 渐隐动画
+        def fade_out(step=0):
+            if step <= 10:
+                alpha = 1.0 - (step / 10.0)
+                toast.attributes('-alpha', alpha)
+                toast.after(20, lambda: fade_out(step + 1))
+            else:
+                toast.destroy()
+        
+        # 开始渐显
+        fade_in()
     
     def select_folder(self):
         """选择根文件夹"""
@@ -407,11 +581,22 @@ class DiscMatcherApp:
     def process_folders(self):
         """处理所有文件夹"""
         total = len(self.album_folders)
-        for idx, (folder_path, folder_name, _) in enumerate(self.album_folders):
-            # 更新进度
-            progress = (idx + 1) / total * 100
+        # 统计待处理的文件夹数量
+        pending_count = sum(1 for _, _, info in self.album_folders if not info)
+        processed_count = 0
+        
+        for idx, (folder_path, folder_name, album_info) in enumerate(self.album_folders):
+            # 如果已经有专辑信息（已完成状态），跳过
+            if album_info:
+                continue
+            
+            processed_count += 1
+            
+            # 更新进度（只计算待处理的文件夹）
+            progress = (processed_count / pending_count * 100) if pending_count > 0 else 100
             self.root.after(0, lambda p=progress: self.progress_var.set(p))
-            self.root.after(0, lambda i=idx: self.update_status(f"正在处理 ({i+1}/{total}): {self.album_folders[i][1]}"))
+            self.root.after(0, lambda i=idx, pc=processed_count, tc=pending_count: 
+                self.update_status(f"正在处理 ({pc}/{tc}): {self.album_folders[i][1]}"))
             
             # 更新状态为搜索中
             self.root.after(0, lambda i=idx: self.update_tree_item(i, status='搜索中'))
@@ -532,6 +717,7 @@ class DiscMatcherApp:
         dialog = tk.Toplevel(self.root)
         dialog.title("选择专辑")
         dialog.geometry("700x550")
+        dialog.configure(bg=self.bg_color)
         dialog.transient(self.root)
         dialog.grab_set()  # 模态对话框
         
@@ -543,7 +729,12 @@ class DiscMatcherApp:
         listbox_frame = ttk.Frame(dialog)
         listbox_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
         
-        listbox = tk.Listbox(listbox_frame, height=18, font=('Arial', 9))
+        listbox = tk.Listbox(listbox_frame, height=18, font=('Arial', 9),
+                            bg=self.secondary_bg, fg=self.text_color,
+                            selectbackground=self.accent_color,
+                            selectforeground='white',
+                            borderwidth=0,
+                            highlightthickness=0)
         scrollbar = ttk.Scrollbar(listbox_frame, orient=tk.VERTICAL, command=listbox.yview)
         listbox.configure(yscrollcommand=scrollbar.set)
         
@@ -661,7 +852,20 @@ class DiscMatcherApp:
         """显示详情对话框"""
         dialog = tk.Toplevel(self.root)
         dialog.title("专辑详情")
-        dialog.geometry("600x700")
+        dialog.configure(bg=self.bg_color)
+        
+        # 设置窗口大小
+        dialog_width = 600
+        dialog_height = 700
+        
+        # 计算居中位置
+        dialog.update_idletasks()
+        screen_width = dialog.winfo_screenwidth()
+        screen_height = dialog.winfo_screenheight()
+        x = (screen_width // 2) - (dialog_width // 2)
+        y = (screen_height // 2) - (dialog_height // 2)
+        
+        dialog.geometry(f"{dialog_width}x{dialog_height}+{x}+{y}")
         
         # 检查文件夹中是否有封面图片
         cover_image_path = None
@@ -701,7 +905,11 @@ class DiscMatcherApp:
             except Exception as e:
                 print(f"加载封面图片失败: {e}")
         
-        text_widget = tk.Text(dialog, wrap=tk.WORD, padx=10, pady=10)
+        text_widget = tk.Text(dialog, wrap=tk.WORD, padx=10, pady=10,
+                             bg=self.secondary_bg, fg=self.text_color,
+                             insertbackground=self.text_color,
+                             borderwidth=0,
+                             highlightthickness=0)
         text_widget.pack(fill=tk.BOTH, expand=True)
         
         # 格式化曲目表
@@ -735,7 +943,19 @@ Discogs ID: {album_info.release_id}
         text_widget.insert('1.0', details_text.strip())
         text_widget.config(state=tk.DISABLED)
         
-        ttk.Button(dialog, text="关闭", command=dialog.destroy).pack(pady=10)
+        # 按钮区域
+        button_frame = ttk.Frame(dialog)
+        button_frame.pack(pady=10)
+        
+        def copy_to_clipboard():
+            """复制信息到剪贴板"""
+            dialog.clipboard_clear()
+            dialog.clipboard_append(details_text.strip())
+            dialog.update()  # 确保剪贴板更新
+            self.show_toast("信息已复制到剪贴板", duration=1500)
+        
+        ttk.Button(button_frame, text="复制信息", command=copy_to_clipboard).pack(side=tk.LEFT, padx=5)
+        ttk.Button(button_frame, text="关闭", command=dialog.destroy).pack(side=tk.LEFT, padx=5)
     
     def select_album(self):
         """手动选择专辑"""
