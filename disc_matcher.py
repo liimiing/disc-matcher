@@ -177,7 +177,7 @@ class DiscMatcherApp:
     """主应用程序"""
     
     # Discogs Token - 请在这里填入你的Token
-    DISCOGS_TOKEN = "WjzqFqSmpNdGLjWgESMTyGlWcYuNKSSFpGJkwdQE"
+    DISCOGS_TOKEN = "YOUR_DISCOGS_TOKEN_HERE"
     
     def __init__(self, root):
         self.root = root
@@ -792,4 +792,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
