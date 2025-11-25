@@ -569,7 +569,7 @@ class DiscMatcherApp:
     
     def __init__(self, root):
         self.root = root
-        self.root.title("Discogs 音乐专辑匹配器")
+        # 标题将在setup_ui中根据语言设置
         self.root.geometry("1200x800")
         
         self.discogs_api = None
@@ -611,6 +611,9 @@ class DiscMatcherApp:
         
         # 设置根窗口背景
         self.root.configure(bg=self.bg_color)
+        
+        # 设置窗口标题（根据当前语言）
+        self.root.title(self.lang.t('app_title') + ' V3.3')
         
         # 配置ttk样式
         style = ttk.Style()
