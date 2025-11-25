@@ -218,7 +218,7 @@ Discogs 音乐专辑匹配器是一个强大的Python桌面应用程序，通过
 
 5. **配置Discogs Token**
    
-   打开 `config.json` 文件，找到第162行：
+   打开 `config.json` 文件，找到第4行：
    ```json
    "discogs_token": "YOUR_DISCOGS_TOKEN_HERE"
    ```
