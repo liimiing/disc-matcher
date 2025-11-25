@@ -31,10 +31,10 @@ Discogs Album Matcher is a powerful Python desktop application that helps you or
 - 📊 **Excel Export**: Exports all album data to Excel spreadsheets
 - ✏️ **Smart Renaming**: Suggests folder names in "Artist - Year - Album" format with one-click renaming
 - 🎯 **Multiple Results**: Interactive selection dialog when multiple matches are found
-- ⏸️ **Pause & Resume**: Processing pauses when selection dialog appears, waits for user input
-- 🖱️ **Double-Click Selection**: Double-click to quickly select from search results
 - 📋 **Tracklist Support**: Includes complete tracklist information in JSON and details
-- 🛡️ **Windows Safe**: Automatically sanitizes folder names to remove illegal characters
+- 🔎 **Single Query**: Single query and modification of specific folders can be performed
+- ✅ **Manual Input**: Information that cannot be found can be manually entered into the album data
+- 🔊 **Play Folder**: Supports one-click calling of Foobar play folder
 
 ### 🚀 Quick Start
 
@@ -175,13 +175,13 @@ Discogs 音乐专辑匹配器是一个强大的Python桌面应用程序，通过
 - 🎵 **自动搜索**: 根据文件夹名称自动在Discogs数据库搜索专辑信息
 - 🖼️ **图片下载**: 下载所有专辑图片（封面和附加照片）
 - 📝 **元数据导出**: 将详细专辑信息保存为JSON文件
+- 📋 **曲目表支持**: JSON和详情中包含完整曲目表信息
 - 📊 **Excel导出**: 将所有专辑数据导出到Excel表格
 - ✏️ **智能重命名**: 提供"音乐人 -年份- 专辑名"格式的重命名建议，一键重命名
 - 🎯 **多结果选择**: 找到多个匹配结果时提供交互式选择对话框
-- ⏸️ **暂停等待**: 弹出选择框时处理暂停，等待用户选择
-- 🖱️ **双击选择**: 双击快速从搜索结果中选择
-- 📋 **曲目表支持**: JSON和详情中包含完整曲目表信息
-- 🛡️ **Windows安全**: 自动清理文件夹名称中的非法字符
+- 🔎 **单次查询**: 可对特定文件夹进行单次查询和修改
+- ✅ **手动录入**: 查不到的信息可手动录入专辑数据
+- 🔊 **播放文件夹**: 支持一键调用Foobar播放文件夹
 
 ### 🚀 快速开始
 
