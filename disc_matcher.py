@@ -575,6 +575,7 @@ class DiscMatcherApp:
         self.processing_thread = None
         self.waiting_for_selection = threading.Event()  # 用于等待用户选择
         self.selection_result = None  # 存储用户选择的结果
+        self.selection_dialog_active = False  # 标记选择对话框是否正在显示
         self.open_dialogs = []  # 保存所有打开的对话框引用，用于跟随主窗体移动
         self.open_toasts = []  # 保存所有打开的toast引用，用于跟随主窗体移动
         self._last_root_position = None  # 记录主窗体上次位置，用于检测移动
@@ -613,7 +614,7 @@ class DiscMatcherApp:
         self.root.configure(bg=self.bg_color)
         
         # 设置窗口标题（根据当前语言）
-        self.root.title(self.lang.t('app_title') + ' V3.3')
+        self.root.title(self.lang.t('app_title') + ' V3.4')
         
         # 配置ttk样式
         style = ttk.Style()
@@ -1194,6 +1195,9 @@ class DiscMatcherApp:
                     # 如果状态栏显示的是"就绪"，更新为翻译后的文本
                     if current_status == '就绪' or current_status == 'Ready' or current_status == self.lang.t('ready'):
                         self.status_var.set(self.lang.t('ready'))
+                
+                # 更新主列表中所有项的状态文本
+                self.update_all_tree_items_status()
     
     def select_folder(self):
         """选择根文件夹"""
@@ -1324,10 +1328,20 @@ class DiscMatcherApp:
                         self.update_tree_item(i, status='completed', album_info=a, suggested=s))
             else:
                 # 多个结果或未找到，显示选择对话框 - 暂停处理，等待用户选择
-                self.root.after(0, lambda i=idx, r=results, q=folder_name: self.show_selection_dialog(i, r, q))
-                # 等待用户选择
-                self.waiting_for_selection.wait()
-                self.waiting_for_selection.clear()
+                # 确保没有其他对话框正在显示
+                while self.selection_dialog_active:
+                    time.sleep(0.1)
+                
+                # 设置对话框激活标志
+                self.selection_dialog_active = True
+                self.selection_result = None  # 重置选择结果
+                self.waiting_for_selection.clear()  # 清除事件
+                
+                # 在主线程中显示对话框（使用after_idle确保立即执行）
+                self.root.after_idle(lambda i=idx, r=results, q=folder_name: self.show_selection_dialog(i, r, q))
+                
+                # 等待用户选择（最多等待5分钟，避免无限等待）
+                self.waiting_for_selection.wait(timeout=300)
                 
                 # 获取用户选择的结果
                 if self.selection_result:
@@ -1342,6 +1356,12 @@ class DiscMatcherApp:
                     # 用户取消或未选择，更新状态
                     if not results:
                         self.root.after(0, lambda i=idx: self.update_tree_item(i, status='not_found'))
+                    else:
+                        # 有结果但用户取消，保持pending状态
+                        self.root.after(0, lambda i=idx: self.update_tree_item(i, status='pending'))
+                
+                # 清除对话框激活标志
+                self.selection_dialog_active = False
             
             # 避免API速率限制
             time.sleep(1.2)
@@ -1456,10 +1476,28 @@ class DiscMatcherApp:
         if search_query is None:
             search_query = folder_name
         
-        # 文件夹名称标签
-        ttk.Label(dialog, text=f"{self.lang.t('folder')}: {folder_name}", 
-                 font=('Arial', 10, 'bold'),
-                 background=self.bg_color, foreground=self.text_color).pack(pady=5)
+        # 文件夹名称标签（可点击，点击后填入搜索框）
+        folder_label_frame = tk.Frame(dialog, bg=self.bg_color)
+        folder_label_frame.pack(pady=5)
+        
+        folder_label_text = tk.Label(folder_label_frame, text=f"{self.lang.t('folder')}: ", 
+                                     font=('Arial', 10, 'bold'),
+                                     background=self.bg_color, foreground=self.text_color)
+        folder_label_text.pack(side=tk.LEFT)
+        
+        folder_name_label = tk.Label(folder_label_frame, text=folder_name,
+                                     font=('Arial', 10, 'bold'),
+                                     background=self.bg_color, foreground=self.accent_color,
+                                     cursor='hand2')
+        folder_name_label.pack(side=tk.LEFT)
+        
+        # 点击文件夹名称时，将其填入搜索框
+        def on_folder_name_click(event):
+            search_var.set(folder_name)
+            search_entry.focus_set()
+            search_entry.select_range(0, tk.END)  # 选中所有文本，方便修改
+        
+        folder_name_label.bind('<Button-1>', on_folder_name_click)
         
         # 搜索关键词输入框和重查按钮
         search_frame = ttk.Frame(dialog)
@@ -1563,6 +1601,7 @@ class DiscMatcherApp:
                     self.open_dialogs.remove((dialog, dialog_width, dialog_height))
                 except:
                     pass
+                self.selection_dialog_active = False  # 清除对话框激活标志
                 dialog.destroy()
                 self.waiting_for_selection.set()  # 通知处理线程继续
         
@@ -1578,6 +1617,7 @@ class DiscMatcherApp:
                 self.open_dialogs.remove((dialog, dialog_width, dialog_height))
             except:
                 pass
+            self.selection_dialog_active = False  # 清除对话框激活标志
             dialog.destroy()
             self.waiting_for_selection.set()  # 通知处理线程继续（取消）
         
@@ -1590,7 +1630,9 @@ class DiscMatcherApp:
         ttk.Button(button_frame, text=self.lang.t('confirm'), command=on_select).pack(side=tk.LEFT, padx=5)
         ttk.Button(button_frame, text=self.lang.t('cancel'), command=on_cancel).pack(side=tk.LEFT, padx=5)
         
-        dialog.wait_window()
+        # 注意：dialog.wait_window() 会阻塞主线程，但处理线程在等待 waiting_for_selection
+        # 所以这里不需要 wait_window，因为处理线程会等待事件
+        # dialog.wait_window()  # 已移除，由处理线程的 waiting_for_selection.wait() 控制
     
     def get_status_text(self, status_code):
         """获取状态文本的翻译"""
@@ -1611,15 +1653,18 @@ class DiscMatcherApp:
         
         # 确定状态和tag
         if status:
-            # 如果传入的是中文状态，转换为状态码
-            if status == self.lang.t('completed') or status == '已完成':
+            # 统一处理状态码（支持状态码和翻译文本）
+            if status in ['completed', self.lang.t('completed'), '已完成']:
                 status_code = 'completed'
-            elif status == self.lang.t('searching') or status == '搜索中':
+            elif status in ['searching', self.lang.t('searching'), '搜索中']:
                 status_code = 'searching'
-            elif status == self.lang.t('not_found') or status == '未找到':
+            elif status in ['not_found', self.lang.t('not_found'), '未找到']:
                 status_code = 'not_found'
-            else:
+            elif status in ['pending', self.lang.t('pending'), '待处理']:
                 status_code = 'pending'
+            else:
+                # 默认根据是否有专辑信息判断
+                status_code = 'completed' if current_info else 'pending'
         else:
             status_code = 'completed' if current_info else 'pending'
         
@@ -1664,6 +1709,39 @@ class DiscMatcherApp:
                 if self.tree.item(item, 'values')[0] == folder_name:
                     self.tree.item(item, values=values, tags=(tag,))
                     break
+    
+    def update_all_tree_items_status(self):
+        """更新主列表中所有项的状态文本（用于语言切换时）"""
+        for idx in range(len(self.album_folders)):
+            folder_path, folder_name, album_info = self.album_folders[idx]
+            
+            # 检查当前显示的状态来确定状态码
+            children = list(self.tree.get_children())
+            if 0 <= idx < len(children):
+                item = children[idx]
+                current_values = self.tree.item(item, 'values')
+                current_tags = self.tree.item(item, 'tags')
+                
+                # 根据tag确定状态码（tag更可靠）
+                if current_tags:
+                    tag = current_tags[0]
+                    if tag == 'completed':
+                        status_code = 'completed'
+                    elif tag == 'searching':
+                        status_code = 'searching'
+                    elif tag == 'notfound':
+                        status_code = 'not_found'
+                    else:
+                        status_code = 'pending'
+                else:
+                    # 如果没有tag，根据是否有专辑信息判断
+                    status_code = 'completed' if album_info else 'pending'
+            else:
+                # 如果索引不匹配，根据是否有专辑信息判断
+                status_code = 'completed' if album_info else 'pending'
+            
+            # 重新更新该项，使用状态码
+            self.update_tree_item(idx, status=status_code, album_info=album_info)
     
     def update_status(self, message: str):
         """更新状态栏"""
@@ -1826,7 +1904,7 @@ class DiscMatcherApp:
         ttk.Button(button_frame, text=self.lang.t('close'), command=on_close).pack(side=tk.LEFT, padx=5)
     
     def single_search(self):
-        """单次查询 - 仅对该条信息检索discogs"""
+        """单次查询 - 仅对该条信息检索discogs（支持重新查询已处理的文件夹）"""
         selection = self.tree.selection()
         if not selection:
             return
@@ -1835,8 +1913,8 @@ class DiscMatcherApp:
         values = self.tree.item(item, 'values')
         folder_name = values[0]
         
-        # 找到对应的文件夹
-        for idx, (folder_path, name, _) in enumerate(self.album_folders):
+        # 找到对应的文件夹（注意：即使已有album_info也可以重新查询）
+        for idx, (folder_path, name, existing_info) in enumerate(self.album_folders):
             if name == folder_name:
                 if not self.discogs_api:
                     if not self.DISCOGS_TOKEN or self.DISCOGS_TOKEN == "YOUR_DISCOGS_TOKEN_HERE":
@@ -1847,32 +1925,116 @@ class DiscMatcherApp:
                 # 更新状态为搜索中
                 self.update_tree_item(idx, status='searching')
                 
-                # 搜索Discogs
-                results = self.discogs_api.search(folder_name)
+                # 在后台线程中执行查询，避免阻塞UI
+                def do_search():
+                    try:
+                        # 搜索Discogs（即使已有数据也可以重新查询）
+                        results = self.discogs_api.search(folder_name)
+                        
+                        # 在主线程中处理结果
+                        self.root.after(0, lambda r=results: self._handle_single_search_results(idx, folder_path, folder_name, existing_info, r))
+                    except Exception as e:
+                        # 处理错误
+                        self.root.after(0, lambda: self._handle_single_search_error(idx, existing_info, e))
                 
-                # 如果只有一个结果，自动选择
-                if len(results) == 1:
+                # 启动后台线程
+                search_thread = threading.Thread(target=do_search, daemon=True)
+                search_thread.start()
+                break
+    
+    def _handle_single_search_results(self, idx: int, folder_path: Path, folder_name: str, existing_info, results):
+        """处理单个查询的结果（在主线程中调用）"""
+        # 如果只有一个结果，自动选择
+        if len(results) == 1:
+            # 在后台线程中处理release，避免阻塞UI
+            def process_release():
+                try:
                     album_info = self.process_release(results[0], folder_path)
                     if album_info:
-                        self.album_folders[idx] = (folder_path, folder_name, album_info)
-                        suggested_name = album_info.get_suggested_folder_name()
-                        self.update_tree_item(idx, status='已完成', album_info=album_info, suggested=suggested_name)
-                        self.show_toast(self.lang.t('search_success'), duration=1500)
-                else:
-                    # 多个结果或未找到，显示选择对话框
-                    self.show_selection_dialog(idx, results, folder_name)
-                    # 检查用户是否选择了结果
-                    if self.selection_result:
-                        album_info = self.process_release(self.selection_result, folder_path)
-                        if album_info:
-                            self.album_folders[idx] = (folder_path, folder_name, album_info)
-                            suggested_name = album_info.get_suggested_folder_name()
-                            self.update_tree_item(idx, status='已完成', album_info=album_info, suggested=suggested_name)
-                            self.show_toast(self.lang.t('search_success'), duration=1500)
-                        self.selection_result = None
-                    elif not results:
-                        self.update_tree_item(idx, status='not_found')
-                break
+                        # 在主线程中更新UI
+                        self.root.after(0, lambda a=album_info: self._update_single_search_success(idx, folder_path, folder_name, a))
+                except Exception as e:
+                    self.root.after(0, lambda: self._handle_single_search_error(idx, existing_info, e))
+            
+            process_thread = threading.Thread(target=process_release, daemon=True)
+            process_thread.start()
+        else:
+            # 多个结果或未找到，显示选择对话框
+            # 确保没有其他对话框正在显示
+            if self.selection_dialog_active:
+                # 如果对话框正在显示，等待它关闭
+                self.root.after(100, lambda r=results: self._handle_single_search_results(idx, folder_path, folder_name, existing_info, r))
+                return
+            
+            # 设置对话框激活标志
+            self.selection_dialog_active = True
+            self.selection_result = None  # 重置选择结果
+            self.waiting_for_selection.clear()  # 清除事件
+            
+            # 显示选择对话框
+            self.show_selection_dialog(idx, results, folder_name)
+            
+            # 在后台线程中等待用户选择
+            def wait_for_selection():
+                # 等待用户选择（最多等待5分钟）
+                self.waiting_for_selection.wait(timeout=300)
+                
+                # 在主线程中处理选择结果
+                self.root.after(0, lambda: self._handle_single_search_selection(idx, folder_path, folder_name, existing_info, results))
+            
+            wait_thread = threading.Thread(target=wait_for_selection, daemon=True)
+            wait_thread.start()
+    
+    def _update_single_search_success(self, idx: int, folder_path: Path, folder_name: str, album_info):
+        """更新单个查询成功的结果（在主线程中调用）"""
+        # 更新数据（覆盖原有的album_info）
+        self.album_folders[idx] = (folder_path, folder_name, album_info)
+        suggested_name = album_info.get_suggested_folder_name()
+        # 使用状态码更新，确保多语言支持
+        self.update_tree_item(idx, status='completed', album_info=album_info, suggested=suggested_name)
+        self.show_toast(self.lang.t('search_success'), duration=1500)
+    
+    def _handle_single_search_selection(self, idx: int, folder_path: Path, folder_name: str, existing_info, results):
+        """处理单个查询的用户选择结果（在主线程中调用）"""
+        # 检查用户是否选择了结果
+        if self.selection_result:
+            # 在后台线程中处理release
+            def process_selected():
+                try:
+                    album_info = self.process_release(self.selection_result, folder_path)
+                    if album_info:
+                        # 在主线程中更新UI
+                        self.root.after(0, lambda a=album_info: self._update_single_search_success(idx, folder_path, folder_name, a))
+                    self.selection_result = None
+                    self.selection_dialog_active = False
+                except Exception as e:
+                    self.root.after(0, lambda: self._handle_single_search_error(idx, existing_info, e))
+                    self.selection_dialog_active = False
+            
+            process_thread = threading.Thread(target=process_selected, daemon=True)
+            process_thread.start()
+        elif not results:
+            # 未找到结果
+            self.update_tree_item(idx, status='not_found')
+            self.selection_dialog_active = False
+        else:
+            # 有结果但用户取消，恢复原状态
+            if existing_info:
+                # 如果有原有数据，恢复为已完成状态
+                self.update_tree_item(idx, status='completed', album_info=existing_info)
+            else:
+                # 如果没有原有数据，恢复为待处理状态
+                self.update_tree_item(idx, status='pending')
+            self.selection_dialog_active = False
+    
+    def _handle_single_search_error(self, idx: int, existing_info, error):
+        """处理单个查询的错误（在主线程中调用）"""
+        # 恢复原状态
+        if existing_info:
+            self.update_tree_item(idx, status='completed', album_info=existing_info)
+        else:
+            self.update_tree_item(idx, status='pending')
+        messagebox.showerror(self.lang.t('error'), f"{self.lang.t('search_failed')}: {error}")
     
     def manual_input(self):
         """手动录入 - 不查discogs，弹出录入界面"""
@@ -2147,7 +2309,7 @@ class DiscMatcherApp:
                         # 更新数据
                         self.album_folders[idx] = (folder_path, folder_name, album_info)
                         suggested_name = album_info.get_suggested_folder_name()
-                        self.update_tree_item(idx, status='已完成', album_info=album_info, suggested=suggested_name)
+                        self.update_tree_item(idx, status='completed', album_info=album_info, suggested=suggested_name)
                         
                         self.show_toast(self.lang.t('manual_input_success'), duration=1500)
                         try:
@@ -2265,7 +2427,7 @@ class DiscMatcherApp:
                 self.album_folders[idx] = (new_path, suggested_name, album_info)
                 
                 # 更新树视图中的显示
-                self.update_tree_item(idx, status='已完成', album_info=album_info, suggested=suggested_name)
+                self.update_tree_item(idx, status='completed', album_info=album_info, suggested=suggested_name)
                 
                 rename_count += 1
             except Exception as e:
