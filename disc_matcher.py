@@ -564,9 +564,6 @@ class ModernMenu:
 class DiscMatcherApp:
     """主应用程序"""
     
-    # Discogs Token - 请在这里填入你的Token
-    DISCOGS_TOKEN = "WjzqFqSmpNdGLjWgESMTyGlWcYuNKSSFpGJkwdQE"
-    
     def __init__(self, root):
         self.root = root
         # 标题将在setup_ui中根据语言设置
@@ -583,18 +580,21 @@ class DiscMatcherApp:
         self._last_root_position = None  # 记录主窗体上次位置，用于检测移动
         self._position_check_job = None  # 位置检查定时器任务ID
         
+        # Discogs Token - 从配置文件读取
+        self.DISCOGS_TOKEN = None
+        
         # 配置文件路径（保存在程序目录）
         self.config_file = Path(__file__).parent / 'config.json'
         
         # 初始化语言管理器
         self.lang = LanguageManager()
         
-        # 初始化Discogs API
+        # 先加载配置（包括语言设置和Discogs Token）
+        self.load_config()
+        
+        # 初始化Discogs API（在加载配置后）
         if self.DISCOGS_TOKEN and self.DISCOGS_TOKEN != "YOUR_DISCOGS_TOKEN_HERE":
             self.discogs_api = DiscogsAPI(self.DISCOGS_TOKEN)
-        
-        # 先加载配置（包括语言设置）
-        self.load_config()
         
         self.setup_ui()
     
@@ -1091,6 +1091,10 @@ class DiscMatcherApp:
                     last_folder = config.get('last_folder')
                     if last_folder and Path(last_folder).exists():
                         self.root_folder = Path(last_folder)
+                    # 加载Discogs Token
+                    discogs_token = config.get('discogs_token')
+                    if discogs_token:
+                        self.DISCOGS_TOKEN = discogs_token
         except Exception as e:
             print(f"加载配置文件失败: {e}")
     
@@ -1107,6 +1111,10 @@ class DiscMatcherApp:
             
             # 保存语言设置
             config['language'] = self.lang.current_lang
+            
+            # 保存Discogs Token
+            if self.DISCOGS_TOKEN:
+                config['discogs_token'] = self.DISCOGS_TOKEN
             
             # 保存文件夹设置
             if self.root_folder:
@@ -1268,7 +1276,7 @@ class DiscMatcherApp:
         # 检查Token是否配置
         if not self.discogs_api:
             if not self.DISCOGS_TOKEN or self.DISCOGS_TOKEN == "YOUR_DISCOGS_TOKEN_HERE":
-                messagebox.showwarning("警告", "请在代码中配置Discogs Token\n在disc_matcher.py文件中找到DISCOGS_TOKEN变量并填入你的Token")
+                messagebox.showwarning(self.lang.t('warning'), self.lang.t('configure_token') + "\n" + self.lang.t('configure_token_in_config'))
                 return
             self.discogs_api = DiscogsAPI(self.DISCOGS_TOKEN)
         
@@ -1832,7 +1840,7 @@ class DiscMatcherApp:
             if name == folder_name:
                 if not self.discogs_api:
                     if not self.DISCOGS_TOKEN or self.DISCOGS_TOKEN == "YOUR_DISCOGS_TOKEN_HERE":
-                        messagebox.showwarning("警告", "请在代码中配置Discogs Token")
+                        messagebox.showwarning(self.lang.t('warning'), self.lang.t('configure_token') + "\n" + self.lang.t('configure_token_in_config'))
                         return
                     self.discogs_api = DiscogsAPI(self.DISCOGS_TOKEN)
                 
