@@ -1,6 +1,7 @@
 @echo off
 chcp 65001 >nul
-echo 正在启动 Discogs 音乐专辑匹配器...
+echo Starting Discogs Music Album Matcher...
 python disc_matcher.py
 pause
+
 
