@@ -71,9 +71,9 @@ Discogs Album Matcher is a powerful Python desktop application that helps you or
 
 5. **Configure Discogs Token**
    
-   Open `disc_matcher.py` and find line 162:
-   ```python
-   DISCOGS_TOKEN = "YOUR_DISCOGS_TOKEN_HERE"
+   Open `config.json` and find line 4:
+   ```json
+   "discogs_token": "YOUR_DISCOGS_TOKEN_HERE"
    ```
    Replace `"YOUR_DISCOGS_TOKEN_HERE"` with your actual token.
 
@@ -218,9 +218,9 @@ Discogs 音乐专辑匹配器是一个强大的Python桌面应用程序，通过
 
 5. **配置Discogs Token**
    
-   打开 `disc_matcher.py` 文件，找到第162行：
-   ```python
-   DISCOGS_TOKEN = "YOUR_DISCOGS_TOKEN_HERE"
+   打开 `config.json` 文件，找到第162行：
+   ```json
+   "discogs_token": "YOUR_DISCOGS_TOKEN_HERE"
    ```
    将 `"YOUR_DISCOGS_TOKEN_HERE"` 替换为你的实际Token。
 
