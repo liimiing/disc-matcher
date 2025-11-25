@@ -30,6 +30,93 @@ from openpyxl.utils import get_column_letter
 import re
 import subprocess
 import shlex
+import locale
+from translations import TRANSLATIONS
+
+
+class LanguageManager:
+    """多语言管理器"""
+    
+    def __init__(self):
+        self.current_lang = 'auto'
+        self.translations = TRANSLATIONS
+    
+    def detect_system_language(self):
+        """检测系统语言"""
+        try:
+            lang, _ = locale.getdefaultlocale()
+            if lang:
+                lang_lower = lang.lower()
+                if lang_lower.startswith('zh_tw') or lang_lower.startswith('zh_hant'):
+                    return 'zh_TW'
+                elif lang_lower.startswith('zh'):
+                    return 'zh_CN'
+                elif lang_lower.startswith('es'):
+                    return 'es_ES'
+                elif lang_lower.startswith('pt'):
+                    return 'pt_BR'
+                elif lang_lower.startswith('fr'):
+                    return 'fr_FR'
+                elif lang_lower.startswith('de'):
+                    return 'de_DE'
+                elif lang_lower.startswith('ja'):
+                    return 'ja_JP'
+                elif lang_lower.startswith('ko'):
+                    return 'ko_KR'
+                elif lang_lower.startswith('ru'):
+                    return 'ru_RU'
+                elif lang_lower.startswith('ar'):
+                    return 'ar_SA'
+                elif lang_lower.startswith('hi'):
+                    return 'hi_IN'
+                else:
+                    return 'en_US'
+        except:
+            pass
+        return 'en_US'  # 默认英文
+    
+    def set_language(self, lang_code):
+        """设置语言"""
+        if lang_code == 'auto':
+            self.current_lang = self.detect_system_language()
+        else:
+            self.current_lang = lang_code
+    
+    def get_current_lang(self):
+        """获取当前语言代码"""
+        if self.current_lang == 'auto':
+            return self.detect_system_language()
+        return self.current_lang
+    
+    def t(self, key, **kwargs):
+        """翻译文本"""
+        lang = self.get_current_lang()
+        text = self.translations.get(lang, self.translations['en_US']).get(key, key)
+        # 支持格式化字符串
+        if kwargs:
+            try:
+                text = text.format(**kwargs)
+            except:
+                pass
+        return text
+    
+    def get_available_languages(self):
+        """获取可用语言列表"""
+        return [
+            ('auto', self.t('auto')),
+            ('zh_CN', '简体中文'),
+            ('zh_TW', '繁體中文'),
+            ('en_US', 'English'),
+            ('es_ES', 'Español'),
+            ('pt_BR', 'Português'),
+            ('fr_FR', 'Français'),
+            ('de_DE', 'Deutsch'),
+            ('ja_JP', '日本語'),
+            ('ko_KR', '한국어'),
+            ('ru_RU', 'Русский'),
+            ('ar_SA', 'العربية'),
+            ('hi_IN', 'हिन्दी'),
+        ]
 
 
 class DiscogsAPI:
@@ -491,18 +578,25 @@ class DiscMatcherApp:
         self.processing_thread = None
         self.waiting_for_selection = threading.Event()  # 用于等待用户选择
         self.selection_result = None  # 存储用户选择的结果
+        self.open_dialogs = []  # 保存所有打开的对话框引用，用于跟随主窗体移动
+        self.open_toasts = []  # 保存所有打开的toast引用，用于跟随主窗体移动
+        self._last_root_position = None  # 记录主窗体上次位置，用于检测移动
+        self._position_check_job = None  # 位置检查定时器任务ID
         
         # 配置文件路径（保存在程序目录）
         self.config_file = Path(__file__).parent / 'config.json'
+        
+        # 初始化语言管理器
+        self.lang = LanguageManager()
         
         # 初始化Discogs API
         if self.DISCOGS_TOKEN and self.DISCOGS_TOKEN != "YOUR_DISCOGS_TOKEN_HERE":
             self.discogs_api = DiscogsAPI(self.DISCOGS_TOKEN)
         
-        self.setup_ui()
-        
-        # 自动加载上次使用的文件夹
+        # 先加载配置（包括语言设置）
         self.load_config()
+        
+        self.setup_ui()
     
     def setup_ui(self):
         """设置用户界面"""
@@ -652,15 +746,44 @@ class DiscMatcherApp:
         toolbar.pack(fill=tk.X)
         
         # 显示Token状态
-        token_status = "已配置" if (self.DISCOGS_TOKEN and self.DISCOGS_TOKEN != "YOUR_DISCOGS_TOKEN_HERE") else "未配置"
-        token_color = self.success_color if token_status == "已配置" else self.error_color
-        token_label = ttk.Label(toolbar, text=f"Token状态: {token_status}", foreground=token_color, background=self.secondary_bg)
-        token_label.pack(side=tk.LEFT, padx=5)
+        token_status = self.lang.t('token_configured') if (self.DISCOGS_TOKEN and self.DISCOGS_TOKEN != "YOUR_DISCOGS_TOKEN_HERE") else self.lang.t('token_not_configured')
+        token_color = self.success_color if token_status == self.lang.t('token_configured') else self.error_color
+        self.token_label_ref = ttk.Label(toolbar, text=f"{self.lang.t('token_status')}: {token_status}", foreground=token_color, background=self.secondary_bg)
+        self.token_label_ref.pack(side=tk.LEFT, padx=5)
         
-        ttk.Button(toolbar, text="选择文件夹", command=self.select_folder).pack(side=tk.LEFT, padx=5)
-        ttk.Button(toolbar, text="开始处理", command=self.start_processing).pack(side=tk.LEFT, padx=5)
-        ttk.Button(toolbar, text="批量重命名", command=self.batch_rename).pack(side=tk.LEFT, padx=5)
-        ttk.Button(toolbar, text="导出Excel", command=self.export_excel).pack(side=tk.LEFT, padx=5)
+        self.select_btn_ref = ttk.Button(toolbar, text=self.lang.t('select_folder'), command=self.select_folder)
+        self.select_btn_ref.pack(side=tk.LEFT, padx=5)
+        self.start_btn_ref = ttk.Button(toolbar, text=self.lang.t('start_processing'), command=self.start_processing)
+        self.start_btn_ref.pack(side=tk.LEFT, padx=5)
+        self.batch_rename_btn_ref = ttk.Button(toolbar, text=self.lang.t('batch_rename'), command=self.batch_rename)
+        self.batch_rename_btn_ref.pack(side=tk.LEFT, padx=5)
+        self.export_btn_ref = ttk.Button(toolbar, text=self.lang.t('export_excel'), command=self.export_excel)
+        self.export_btn_ref.pack(side=tk.LEFT, padx=5)
+        
+        # 语言选择下拉框
+        self.lang_label = ttk.Label(toolbar, text=f"{self.lang.t('language')}:", background=self.secondary_bg)
+        self.lang_label.pack(side=tk.LEFT, padx=(20, 5))
+        
+        # 保存语言选项和代码的映射
+        lang_options = []
+        self.lang_values = []
+        for code, name in self.lang.get_available_languages():
+            lang_options.append(name)
+            self.lang_values.append(code)
+        
+        # 找到当前语言对应的显示名称
+        current_index = 0
+        if self.lang.current_lang in self.lang_values:
+            current_index = self.lang_values.index(self.lang.current_lang)
+        current_display_name = lang_options[current_index]
+        
+        self.lang_var = tk.StringVar(value=current_display_name)
+        self.lang_combo = ttk.Combobox(toolbar, textvariable=self.lang_var, width=12, state='readonly')
+        self.lang_combo['values'] = lang_options
+        self.lang_combo.current(current_index)
+        self.lang_combo.pack(side=tk.LEFT, padx=5)
+        self.lang_combo.bind('<<ComboboxSelected>>', self.on_language_changed)
+        
         
         # 进度条
         self.progress_var = tk.DoubleVar()
@@ -668,7 +791,7 @@ class DiscMatcherApp:
         self.progress_bar.pack(side=tk.LEFT, padx=10)
         
         # 状态栏
-        self.status_var = tk.StringVar(value="就绪")
+        self.status_var = tk.StringVar(value=self.lang.t('ready'))
         status_bar = ttk.Label(self.root, textvariable=self.status_var, relief='flat', style='Status.TLabel')
         status_bar.pack(side=tk.BOTTOM, fill=tk.X)
         
@@ -677,9 +800,10 @@ class DiscMatcherApp:
         main_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
         
         # 创建Treeview显示列表
-        columns = ('文件夹名', '音乐人', '专辑名', '年份', '状态', '建议名称')
+        # 使用固定的列标识符（英文），表头显示时使用翻译文本
+        self.tree_columns = ('folder_name', 'artist', 'album_name', 'year', 'status', 'suggested_name')
         
-        self.tree = ttk.Treeview(main_frame, columns=columns, show='headings', height=20, style='Custom.Treeview')
+        self.tree = ttk.Treeview(main_frame, columns=self.tree_columns, show='headings', height=20, style='Custom.Treeview')
         
         # 配置不同状态的tag样式（深灰色系，略有区别）
         # 待处理 - 默认深灰色
@@ -691,16 +815,15 @@ class DiscMatcherApp:
         # 未找到 - 稍暗的深灰色
         self.tree.tag_configure('notfound', background='#2A2A2A')
         
-        for col in columns:
-            self.tree.heading(col, text=col)
-            self.tree.column(col, width=150)
+        # 更新表头文本（使用翻译）
+        self.update_tree_headers()
         
-        self.tree.column('文件夹名', width=200)
-        self.tree.column('建议名称', width=250)
+        self.tree.column('folder_name', width=200)
+        self.tree.column('suggested_name', width=250)
         
         # 设置年份和状态列居中显示
-        self.tree.column('年份', anchor='center', width=30)
-        self.tree.column('状态', anchor='center', width=30)
+        self.tree.column('year', anchor='center', width=80)
+        self.tree.column('status', anchor='center', width=80)
         
         # 滚动条
         scrollbar = ttk.Scrollbar(main_frame, orient=tk.VERTICAL, command=self.tree.yview)
@@ -725,22 +848,141 @@ class DiscMatcherApp:
                                        active_bg=self.accent_color,
                                        active_fg='white')
         
-        self.context_menu.add_command("查看详情", self.view_details)
-        self.context_menu.add_command("单次查询", self.single_search)
-        self.context_menu.add_command("手动录入", self.manual_input)
-        self.context_menu.add_command("选择专辑", self.select_album)
-        self.context_menu.add_command("重命名文件夹", self.rename_folder)
-        self.context_menu.add_separator()
-        self.context_menu.add_command("打开文件夹", self.open_folder)
-        self.context_menu.add_command("播放文件夹", self.play_folder)
+        # 更新右键菜单文本（使用翻译）
+        self.update_context_menu()
         
         self.tree.bind("<Button-3>", self.show_context_menu)
         self.tree.bind("<Double-1>", self.on_double_click)
+        
+        # 如果配置中已有文件夹路径，自动扫描
+        if self.root_folder and self.root_folder.exists():
+            self.scan_folders()
+        
+        # 启动位置检查定时器，使对话框和toast跟随主窗体移动
+        self._start_position_tracker()
+    
+    def _start_position_tracker(self):
+        """启动位置跟踪器，定期检查主窗体位置变化"""
+        try:
+            # 记录初始位置
+            self._last_root_position = (self.root.winfo_x(), self.root.winfo_y())
+            # 启动定时检查
+            self._check_position_change()
+        except:
+            pass
+    
+    def _check_position_change(self):
+        """检查主窗体位置是否改变，如果改变则更新所有对话框和toast位置"""
+        try:
+            # 检查主窗体是否还存在
+            if not self.root.winfo_exists():
+                return
+            
+            current_x = self.root.winfo_x()
+            current_y = self.root.winfo_y()
+            current_pos = (current_x, current_y)
+            
+            # 如果位置改变了
+            if self._last_root_position is None or self._last_root_position != current_pos:
+                self._last_root_position = current_pos
+                # 更新所有对话框位置
+                self._update_all_dialogs()
+                # 更新所有toast位置
+                self._update_all_toasts()
+            
+            # 100ms后再次检查（10次/秒，足够流畅）
+            self._position_check_job = self.root.after(100, self._check_position_change)
+        except tk.TclError:
+            # 主窗体可能已关闭，停止跟踪
+            return
+        except Exception:
+            # 如果出错，尝试重新启动
+            try:
+                if self.root.winfo_exists():
+                    self._position_check_job = self.root.after(100, self._check_position_change)
+            except:
+                pass
+    
+    def center_dialog(self, dialog, dialog_width, dialog_height):
+        """将对话框相对于主窗体居中显示"""
+        try:
+            dialog.update_idletasks()
+            # 获取主窗体位置和大小
+            root_x = self.root.winfo_x()
+            root_y = self.root.winfo_y()
+            root_width = self.root.winfo_width()
+            root_height = self.root.winfo_height()
+            
+            # 计算对话框位置（相对于主窗体居中）
+            x = root_x + (root_width // 2) - (dialog_width // 2)
+            y = root_y + (root_height // 2) - (dialog_height // 2)
+            
+            dialog.geometry(f"{dialog_width}x{dialog_height}+{x}+{y}")
+        except:
+            pass
+    
+    def center_toast(self, toast, toast_width, toast_height):
+        """将toast相对于主窗体居中显示"""
+        try:
+            toast.update_idletasks()
+            # 获取主窗体位置和大小
+            root_x = self.root.winfo_x()
+            root_y = self.root.winfo_y()
+            root_width = self.root.winfo_width()
+            root_height = self.root.winfo_height()
+            
+            # 计算toast位置（相对于主窗体居中，稍微偏上）
+            x = root_x + (root_width // 2) - (toast_width // 2)
+            y = root_y + (root_height // 3) - (toast_height // 2)  # 在主窗体上方1/3处
+            
+            toast.geometry(f"{toast_width}x{toast_height}+{x}+{y}")
+        except:
+            pass
+    
+    def _update_all_dialogs(self):
+        """更新所有打开的对话框位置"""
+        for dialog_info in self.open_dialogs[:]:  # 使用切片复制，避免迭代时修改列表
+            try:
+                dialog, width, height = dialog_info
+                if dialog.winfo_exists():
+                    self.center_dialog(dialog, width, height)
+                else:
+                    # 对话框已关闭，从列表中移除
+                    self.open_dialogs.remove(dialog_info)
+            except tk.TclError:
+                # 对话框可能已销毁，从列表中移除
+                try:
+                    self.open_dialogs.remove(dialog_info)
+                except:
+                    pass
+            except Exception:
+                pass
+    
+    def _update_all_toasts(self):
+        """更新所有打开的toast位置"""
+        for toast_info in self.open_toasts[:]:  # 使用切片复制，避免迭代时修改列表
+            try:
+                toast, width, height = toast_info
+                if toast.winfo_exists():
+                    self.center_toast(toast, width, height)
+                else:
+                    # toast已关闭，从列表中移除
+                    self.open_toasts.remove(toast_info)
+            except tk.TclError:
+                # toast可能已销毁，从列表中移除
+                try:
+                    self.open_toasts.remove(toast_info)
+                except:
+                    pass
+            except Exception:
+                pass
     
     def show_toast(self, message: str, duration: int = 2000):
-        """显示渐隐渐现的提示消息"""
+        """显示渐隐渐现的提示消息（支持多语言，跟随主窗体移动）"""
         toast = tk.Toplevel(self.root)
         toast.overrideredirect(True)  # 移除窗口装饰
+        toast.transient(self.root)  # 设置为子窗口
+        toast.attributes('-topmost', True)  # 确保在最上层显示
         
         # 深蓝色背景
         toast_bg = "#1E3A5F"  # 深蓝色
@@ -751,7 +993,8 @@ class DiscMatcherApp:
                              text=message,
                              font=('Arial', 11),
                              padx=20,
-                             pady=20)
+                             pady=20,
+                             bg=toast_bg)
         temp_label.pack()
         toast.update_idletasks()
         
@@ -765,19 +1008,15 @@ class DiscMatcherApp:
         width = max(min_width, min(text_width, max_width))
         height = 80
         
-        # 使用主窗口的屏幕尺寸来计算居中位置（更可靠）
-        try:
-            screen_width = self.root.winfo_screenwidth()
-            screen_height = self.root.winfo_screenheight()
-        except:
-            # 如果主窗口不可用，使用toast的屏幕尺寸
-            screen_width = toast.winfo_screenwidth()
-            screen_height = toast.winfo_screenheight()
+        # 先设置大小
+        toast.geometry(f"{width}x{height}")
+        toast.update_idletasks()
         
-        # 计算居中位置
-        x = (screen_width // 2) - (width // 2)
-        y = (screen_height // 2) - (height // 2)
-        toast.geometry(f'{width}x{height}+{x}+{y}')
+        # 相对于主窗体居中显示
+        self.center_toast(toast, width, height)
+        
+        # 保存toast引用，以便跟随主窗体移动
+        self.open_toasts.append((toast, width, height))
         
         # 创建标签（使用深蓝色背景）
         label = tk.Label(toast, 
@@ -790,55 +1029,160 @@ class DiscMatcherApp:
                         wraplength=width-40)  # 设置自动换行宽度
         label.pack(fill=tk.BOTH, expand=True)
         
-        # 初始透明度
+        toast.update_idletasks()
+        
+        # 初始透明度设置为0，然后渐显
         toast.attributes('-alpha', 0.0)
+        toast.deiconify()  # 确保窗口显示
         
         # 渐显动画
         def fade_in(step=0):
-            if step <= 10:
-                alpha = step / 10.0
-                toast.attributes('-alpha', alpha)
-                toast.after(20, lambda: fade_in(step + 1))
-            else:
-                # 等待指定时间后开始渐隐
-                toast.after(duration, fade_out)
+            try:
+                if not toast.winfo_exists():
+                    return
+                if step <= 10:
+                    alpha = step / 10.0
+                    toast.attributes('-alpha', alpha)
+                    toast.after(20, lambda: fade_in(step + 1))
+                else:
+                    # 等待指定时间后开始渐隐
+                    toast.after(duration, fade_out)
+            except:
+                pass
         
         # 渐隐动画
         def fade_out(step=0):
-            if step <= 10:
-                alpha = 1.0 - (step / 10.0)
-                toast.attributes('-alpha', alpha)
-                toast.after(20, lambda: fade_out(step + 1))
-            else:
-                toast.destroy()
+            try:
+                if not toast.winfo_exists():
+                    return
+                if step <= 10:
+                    alpha = 1.0 - (step / 10.0)
+                    toast.attributes('-alpha', alpha)
+                    toast.after(20, lambda: fade_out(step + 1))
+                else:
+                    # 从列表中移除
+                    try:
+                        self.open_toasts.remove((toast, width, height))
+                    except:
+                        pass
+                    try:
+                        toast.destroy()
+                    except:
+                        pass
+            except:
+                pass
         
-        # 开始渐显
-        fade_in()
+        # 延迟一小段时间后开始渐显，确保窗口完全创建
+        toast.after(10, fade_in)
     
     def load_config(self):
-        """加载配置文件，自动打开上次使用的文件夹"""
+        """加载配置文件，自动打开上次使用的文件夹和语言设置"""
         try:
             if self.config_file.exists():
                 with open(self.config_file, 'r', encoding='utf-8') as f:
                     config = json.load(f)
+                    # 加载语言设置
+                    lang_setting = config.get('language', 'auto')
+                    self.lang.set_language(lang_setting)
+                    # 加载文件夹设置
                     last_folder = config.get('last_folder')
                     if last_folder and Path(last_folder).exists():
                         self.root_folder = Path(last_folder)
-                        self.scan_folders()
         except Exception as e:
             print(f"加载配置文件失败: {e}")
     
     def save_config(self):
-        """保存当前选择的文件夹到配置文件"""
+        """保存当前选择的文件夹和语言设置到配置文件"""
         try:
+            config = {}
+            if self.config_file.exists():
+                try:
+                    with open(self.config_file, 'r', encoding='utf-8') as f:
+                        config = json.load(f)
+                except:
+                    pass
+            
+            # 保存语言设置
+            config['language'] = self.lang.current_lang
+            
+            # 保存文件夹设置
             if self.root_folder:
-                config = {
-                    'last_folder': str(self.root_folder)
-                }
-                with open(self.config_file, 'w', encoding='utf-8') as f:
-                    json.dump(config, f, ensure_ascii=False, indent=2)
+                config['last_folder'] = str(self.root_folder)
+            
+            with open(self.config_file, 'w', encoding='utf-8') as f:
+                json.dump(config, f, ensure_ascii=False, indent=2)
         except Exception as e:
             print(f"保存配置文件失败: {e}")
+    
+    def update_tree_headers(self):
+        """更新表格表头文本"""
+        column_translations = {
+            'folder_name': self.lang.t('folder_name'),
+            'artist': self.lang.t('artist'),
+            'album_name': self.lang.t('album_name'),
+            'year': self.lang.t('year'),
+            'status': self.lang.t('status'),
+            'suggested_name': self.lang.t('suggested_name'),
+        }
+        
+        for col in self.tree_columns:
+            self.tree.heading(col, text=column_translations.get(col, col))
+    
+    def update_context_menu(self):
+        """更新右键菜单文本"""
+        # 清空现有菜单项
+        self.context_menu.items = []
+        
+        # 重新添加菜单项（使用翻译）
+        self.context_menu.add_command(self.lang.t('view_details'), self.view_details)
+        self.context_menu.add_command(self.lang.t('single_search'), self.single_search)
+        self.context_menu.add_command(self.lang.t('manual_input'), self.manual_input)
+        self.context_menu.add_command(self.lang.t('rename_folder'), self.rename_folder)
+        self.context_menu.add_separator()
+        self.context_menu.add_command(self.lang.t('open_folder'), self.open_folder)
+        self.context_menu.add_command(self.lang.t('play_folder'), self.play_folder)
+    
+    def on_language_changed(self, event=None):
+        """语言切换事件处理"""
+        # 获取选中的显示名称
+        selected_display_name = self.lang_var.get()
+        # 找到对应的语言代码
+        if selected_display_name in self.lang_combo['values']:
+            selected_index = list(self.lang_combo['values']).index(selected_display_name)
+            if 0 <= selected_index < len(self.lang_values):
+                selected_lang_code = self.lang_values[selected_index]
+                self.lang.set_language(selected_lang_code)
+                self.save_config()
+                
+                # 重新设置窗口标题
+                self.root.title(self.lang.t('app_title') + 'V3.3')
+                
+                # 更新Token状态标签
+                token_status = self.lang.t('token_configured') if (self.DISCOGS_TOKEN and self.DISCOGS_TOKEN != "YOUR_DISCOGS_TOKEN_HERE") else self.lang.t('token_not_configured')
+                token_color = self.success_color if token_status == self.lang.t('token_configured') else self.error_color
+                self.token_label_ref.config(text=f"{self.lang.t('token_status')}: {token_status}", foreground=token_color)
+                
+                # 更新按钮文本
+                self.select_btn_ref.config(text=self.lang.t('select_folder'))
+                self.start_btn_ref.config(text=self.lang.t('start_processing'))
+                self.batch_rename_btn_ref.config(text=self.lang.t('batch_rename'))
+                self.export_btn_ref.config(text=self.lang.t('export_excel'))
+                
+                # 更新语言标签
+                self.lang_label.config(text=f"{self.lang.t('language')}:")
+                
+                # 更新表格表头
+                self.update_tree_headers()
+                
+                # 更新右键菜单
+                self.update_context_menu()
+                
+                # 更新状态栏
+                if hasattr(self, 'status_var'):
+                    current_status = self.status_var.get()
+                    # 如果状态栏显示的是"就绪"，更新为翻译后的文本
+                    if current_status == '就绪' or current_status == 'Ready' or current_status == self.lang.t('ready'):
+                        self.status_var.set(self.lang.t('ready'))
     
     def select_folder(self):
         """选择根文件夹"""
@@ -864,7 +1208,7 @@ class DiscMatcherApp:
                 if item.is_dir():
                     folder_name = item.name
                     album_info = None
-                    status = '待处理'
+                    status_code = 'pending'
                     
                     # 检查是否有已处理的JSON文件
                     json_path = item / "album_info.json"
@@ -873,21 +1217,23 @@ class DiscMatcherApp:
                             with open(json_path, 'r', encoding='utf-8') as f:
                                 json_data = json.load(f)
                                 album_info = AlbumInfo.from_dict(json_data)
-                                status = '已完成'
+                                status_code = 'completed'
                                 loaded_count += 1
                         except Exception as e:
                             print(f"加载JSON文件失败 {json_path}: {e}")
                             # 如果加载失败，继续作为待处理
                     
+                    status = self.get_status_text(status_code)
+                    
                     self.album_folders.append((item, folder_name, album_info))
                     
                     # 根据是否有专辑信息显示不同的值
                     # 确定tag（状态标签）
-                    if status == '已完成':
+                    if status_code == 'completed':
                         tag = 'completed'
-                    elif status == '搜索中':
+                    elif status_code == 'searching':
                         tag = 'searching'
-                    elif status == '未找到':
+                    elif status_code == 'not_found':
                         tag = 'notfound'
                     else:
                         tag = 'pending'
@@ -949,10 +1295,10 @@ class DiscMatcherApp:
             progress = (processed_count / pending_count * 100) if pending_count > 0 else 100
             self.root.after(0, lambda p=progress: self.progress_var.set(p))
             self.root.after(0, lambda i=idx, pc=processed_count, tc=pending_count: 
-                self.update_status(f"正在处理 ({pc}/{tc}): {self.album_folders[i][1]}"))
+                self.update_status(self.lang.t('processing', current=pc, total=tc) + f": {self.album_folders[i][1]}"))
             
             # 更新状态为搜索中
-            self.root.after(0, lambda i=idx: self.update_tree_item(i, status='搜索中'))
+            self.root.after(0, lambda i=idx: self.update_tree_item(i, status='searching'))
             
             # 搜索Discogs
             results = self.discogs_api.search(folder_name)
@@ -964,7 +1310,7 @@ class DiscMatcherApp:
                     self.album_folders[idx] = (folder_path, folder_name, album_info)
                     suggested_name = album_info.get_suggested_folder_name()
                     self.root.after(0, lambda i=idx, s=suggested_name, a=album_info: 
-                        self.update_tree_item(i, status='已完成', album_info=a, suggested=s))
+                        self.update_tree_item(i, status='completed', album_info=a, suggested=s))
             else:
                 # 多个结果或未找到，显示选择对话框 - 暂停处理，等待用户选择
                 self.root.after(0, lambda i=idx, r=results, q=folder_name: self.show_selection_dialog(i, r, q))
@@ -979,12 +1325,12 @@ class DiscMatcherApp:
                         self.album_folders[idx] = (folder_path, folder_name, album_info)
                         suggested_name = album_info.get_suggested_folder_name()
                         self.root.after(0, lambda i=idx, s=suggested_name, a=album_info: 
-                            self.update_tree_item(i, status='已完成', album_info=a, suggested=s))
+                            self.update_tree_item(i, status='completed', album_info=a, suggested=s))
                     self.selection_result = None
                 else:
                     # 用户取消或未选择，更新状态
                     if not results:
-                        self.root.after(0, lambda i=idx: self.update_tree_item(i, status='未找到'))
+                        self.root.after(0, lambda i=idx: self.update_tree_item(i, status='not_found'))
             
             # 避免API速率限制
             time.sleep(1.2)
@@ -1068,27 +1414,39 @@ class DiscMatcherApp:
     def show_selection_dialog(self, idx: int, results: List[Dict], search_query: str = None):
         """显示选择对话框"""
         dialog = tk.Toplevel(self.root)
-        dialog.title("选择专辑")
+        dialog.title(self.lang.t('select_album'))
         dialog.configure(bg=self.bg_color)
         dialog.transient(self.root)
-        dialog.grab_set()  # 模态对话框
+        dialog.grab_set()  # 模态对话框，禁止操作主窗体
         
-        # 设置窗口大小并居中显示
+        # 设置窗口大小并居中显示（相对于主窗体）
         dialog_width = 960
         dialog_height = 600
+        
+        # 先设置大小，再居中
+        dialog.geometry(f"{dialog_width}x{dialog_height}")
         dialog.update_idletasks()
-        screen_width = dialog.winfo_screenwidth()
-        screen_height = dialog.winfo_screenheight()
-        x = (screen_width // 2) - (dialog_width // 2)
-        y = (screen_height // 2) - (dialog_height // 2)
-        dialog.geometry(f"{dialog_width}x{dialog_height}+{x}+{y}")
+        self.center_dialog(dialog, dialog_width, dialog_height)
+        
+        # 保存对话框引用，以便跟随主窗体移动（在完全创建后添加）
+        self.open_dialogs.append((dialog, dialog_width, dialog_height))
+        
+        # 对话框关闭时从列表中移除
+        def on_dialog_close():
+            try:
+                self.open_dialogs.remove((dialog, dialog_width, dialog_height))
+            except:
+                pass
+            dialog.destroy()
+        
+        dialog.protocol("WM_DELETE_WINDOW", on_dialog_close)
         
         folder_name = self.album_folders[idx][1]
         if search_query is None:
             search_query = folder_name
         
         # 文件夹名称标签
-        ttk.Label(dialog, text=f"文件夹: {folder_name}", 
+        ttk.Label(dialog, text=f"{self.lang.t('folder')}: {folder_name}", 
                  font=('Arial', 10, 'bold'),
                  background=self.bg_color, foreground=self.text_color).pack(pady=5)
         
@@ -1096,7 +1454,7 @@ class DiscMatcherApp:
         search_frame = ttk.Frame(dialog)
         search_frame.pack(pady=10, padx=10, fill=tk.X)
         
-        ttk.Label(search_frame, text="搜索关键词:", 
+        ttk.Label(search_frame, text=f"{self.lang.t('search_keyword')}:", 
                  background=self.bg_color, foreground=self.text_color).pack(side=tk.LEFT, padx=5)
         
         search_var = tk.StringVar(value=search_query)
@@ -1118,7 +1476,7 @@ class DiscMatcherApp:
             
             if not self.discogs_api:
                 if not self.DISCOGS_TOKEN or self.DISCOGS_TOKEN == "YOUR_DISCOGS_TOKEN_HERE":
-                    messagebox.showwarning("警告", "请在代码中配置Discogs Token")
+                    messagebox.showwarning(self.lang.t('warning'), self.lang.t('configure_token'))
                     return
                 self.discogs_api = DiscogsAPI(self.DISCOGS_TOKEN)
             
@@ -1143,17 +1501,17 @@ class DiscMatcherApp:
                 
                 # 更新提示文本
                 if new_results:
-                    status_label.config(text=f"找到 {len(new_results)} 个匹配结果，请选择（双击或选择后点击确定）:")
+                    status_label.config(text=self.lang.t('found_results', count=len(new_results)) + ":")
                 else:
-                    status_label.config(text="未找到匹配结果，可以手动录入或修改搜索关键词重查:")
+                    status_label.config(text=self.lang.t('no_results') + ":")
         
-        ttk.Button(search_frame, text="重查", command=refresh_search).pack(side=tk.LEFT, padx=5)
+        ttk.Button(search_frame, text=self.lang.t('re_search'), command=refresh_search).pack(side=tk.LEFT, padx=5)
         
         # 状态标签
         if results:
-            status_text = f"找到 {len(results)} 个匹配结果，请选择（双击或选择后点击确定）:"
+            status_text = self.lang.t('found_results', count=len(results)) + ":"
         else:
-            status_text = "未找到匹配结果，可以手动录入或修改搜索关键词重查:"
+            status_text = self.lang.t('no_results') + ":"
         
         status_label = ttk.Label(dialog, text=status_text,
                                 font=('Arial', 9),
@@ -1190,6 +1548,10 @@ class DiscMatcherApp:
             selection = listbox.curselection()
             if selection and current_results:
                 self.selection_result = current_results[selection[0]]
+                try:
+                    self.open_dialogs.remove((dialog, dialog_width, dialog_height))
+                except:
+                    pass
                 dialog.destroy()
                 self.waiting_for_selection.set()  # 通知处理线程继续
         
@@ -1201,6 +1563,10 @@ class DiscMatcherApp:
         
         def on_cancel():
             self.selection_result = None
+            try:
+                self.open_dialogs.remove((dialog, dialog_width, dialog_height))
+            except:
+                pass
             dialog.destroy()
             self.waiting_for_selection.set()  # 通知处理线程继续（取消）
         
@@ -1210,10 +1576,20 @@ class DiscMatcherApp:
         
         button_frame = ttk.Frame(dialog)
         button_frame.pack(pady=10)
-        ttk.Button(button_frame, text="确定", command=on_select).pack(side=tk.LEFT, padx=5)
-        ttk.Button(button_frame, text="取消", command=on_cancel).pack(side=tk.LEFT, padx=5)
+        ttk.Button(button_frame, text=self.lang.t('confirm'), command=on_select).pack(side=tk.LEFT, padx=5)
+        ttk.Button(button_frame, text=self.lang.t('cancel'), command=on_cancel).pack(side=tk.LEFT, padx=5)
         
         dialog.wait_window()
+    
+    def get_status_text(self, status_code):
+        """获取状态文本的翻译"""
+        status_map = {
+            'pending': self.lang.t('pending'),
+            'searching': self.lang.t('searching'),
+            'completed': self.lang.t('completed'),
+            'not_found': self.lang.t('not_found'),
+        }
+        return status_map.get(status_code, status_code)
     
     def update_tree_item(self, idx: int, status: str = None, album_info: AlbumInfo = None, suggested: str = None):
         """更新树形视图项"""
@@ -1223,12 +1599,26 @@ class DiscMatcherApp:
             current_info = album_info
         
         # 确定状态和tag
-        final_status = status or ('已完成' if current_info else '待处理')
-        if final_status == '已完成':
+        if status:
+            # 如果传入的是中文状态，转换为状态码
+            if status == self.lang.t('completed') or status == '已完成':
+                status_code = 'completed'
+            elif status == self.lang.t('searching') or status == '搜索中':
+                status_code = 'searching'
+            elif status == self.lang.t('not_found') or status == '未找到':
+                status_code = 'not_found'
+            else:
+                status_code = 'pending'
+        else:
+            status_code = 'completed' if current_info else 'pending'
+        
+        final_status = self.get_status_text(status_code)
+        
+        if status_code == 'completed':
             tag = 'completed'
-        elif final_status == '搜索中':
+        elif status_code == 'searching':
             tag = 'searching'
-        elif final_status == '未找到':
+        elif status_code == 'not_found':
             tag = 'notfound'
         else:
             tag = 'pending'
@@ -1294,27 +1684,38 @@ class DiscMatcherApp:
                 if album_info:
                     self.show_details_dialog(album_info, folder_path)
                 else:
-                    self.show_toast("该文件夹尚未处理，没有专辑信息", duration=2000)
+                    self.show_toast(self.lang.t('not_processed'), duration=2000)
                 break
     
     def show_details_dialog(self, album_info: AlbumInfo, folder_path: Path):
         """显示详情对话框"""
         dialog = tk.Toplevel(self.root)
-        dialog.title("专辑详情")
+        dialog.title(self.lang.t('details_title'))
         dialog.configure(bg=self.bg_color)
+        dialog.transient(self.root)
+        dialog.grab_set()  # 模态对话框，禁止操作主窗体
         
-        # 设置窗口大小
+        # 设置窗口大小并居中显示（相对于主窗体）
         dialog_width = 600
         dialog_height = 700
         
-        # 计算居中位置
+        # 先设置大小，再居中
+        dialog.geometry(f"{dialog_width}x{dialog_height}")
         dialog.update_idletasks()
-        screen_width = dialog.winfo_screenwidth()
-        screen_height = dialog.winfo_screenheight()
-        x = (screen_width // 2) - (dialog_width // 2)
-        y = (screen_height // 2) - (dialog_height // 2)
+        self.center_dialog(dialog, dialog_width, dialog_height)
         
-        dialog.geometry(f"{dialog_width}x{dialog_height}+{x}+{y}")
+        # 保存对话框引用，以便跟随主窗体移动（在完全创建后添加）
+        self.open_dialogs.append((dialog, dialog_width, dialog_height))
+        
+        # 对话框关闭时从列表中移除
+        def on_dialog_close():
+            try:
+                self.open_dialogs.remove((dialog, dialog_width, dialog_height))
+            except:
+                pass
+            dialog.destroy()
+        
+        dialog.protocol("WM_DELETE_WINDOW", on_dialog_close)
         
         # 检查文件夹中是否有封面图片
         cover_image_path = None
@@ -1364,7 +1765,7 @@ class DiscMatcherApp:
         # 格式化曲目表
         tracklist_text = ""
         if album_info.tracklist:
-            tracklist_text = "\n\n曲目表:\n"
+            tracklist_text = f"\n\n{self.lang.t('tracklist_label')}:\n"
             for track in album_info.tracklist:
                 position = track.get('位置', '')
                 title = track.get('标题', '')
@@ -1375,18 +1776,18 @@ class DiscMatcherApp:
                 tracklist_text += "\n"
         
         details_text = f"""
-音乐人: {album_info.artist}
-专辑名: {album_info.album_name}
-出版年份: {album_info.year}
-唱片厂牌: {', '.join(album_info.label_names)}
-厂牌编号: {album_info.catalog_no}
-音乐风格: {', '.join(album_info.genre) if isinstance(album_info.genre, list) else album_info.genre}
-风格标签: {', '.join(album_info.style) if isinstance(album_info.style, list) else album_info.style}
-国家: {album_info.country}
-Discogs ID: {album_info.release_id}
+{self.lang.t('artist_label')}: {album_info.artist}
+{self.lang.t('album_name_label')}: {album_info.album_name}
+{self.lang.t('year_label')}: {album_info.year}
+{self.lang.t('label_label')}: {', '.join(album_info.label_names)}
+{self.lang.t('catalog_no_label')}: {album_info.catalog_no}
+{self.lang.t('genre_label')}: {', '.join(album_info.genre) if isinstance(album_info.genre, list) else album_info.genre}
+{self.lang.t('style_label')}: {', '.join(album_info.style) if isinstance(album_info.style, list) else album_info.style}
+{self.lang.t('country_label')}: {album_info.country}
+{self.lang.t('discogs_id_label')}: {album_info.release_id}
 {tracklist_text}
-备注信息:
-{album_info.notes if album_info.notes else '无'}
+{self.lang.t('notes_label')}:
+{album_info.notes if album_info.notes else self.lang.t('no_results')}
         """
         
         text_widget.insert('1.0', details_text.strip())
@@ -1401,42 +1802,17 @@ Discogs ID: {album_info.release_id}
             dialog.clipboard_clear()
             dialog.clipboard_append(details_text.strip())
             dialog.update()  # 确保剪贴板更新
-            self.show_toast("信息已复制到剪贴板", duration=1500)
+            self.show_toast(self.lang.t('info_copied'), duration=1500)
         
-        ttk.Button(button_frame, text="复制信息", command=copy_to_clipboard).pack(side=tk.LEFT, padx=5)
-        ttk.Button(button_frame, text="关闭", command=dialog.destroy).pack(side=tk.LEFT, padx=5)
-    
-    def select_album(self):
-        """手动选择专辑"""
-        selection = self.tree.selection()
-        if not selection:
-            return
+        def on_close():
+            try:
+                self.open_dialogs.remove((dialog, dialog_width, dialog_height))
+            except:
+                pass
+            dialog.destroy()
         
-        item = selection[0]
-        values = self.tree.item(item, 'values')
-        folder_name = values[0]
-        
-        # 找到对应的文件夹
-        for idx, (folder_path, name, _) in enumerate(self.album_folders):
-                if name == folder_name:
-                    if not self.discogs_api:
-                        if not self.DISCOGS_TOKEN or self.DISCOGS_TOKEN == "YOUR_DISCOGS_TOKEN_HERE":
-                            messagebox.showwarning("警告", "请在代码中配置Discogs Token")
-                            return
-                        self.discogs_api = DiscogsAPI(self.DISCOGS_TOKEN)
-                    
-                    results = self.discogs_api.search(folder_name)
-                    # 显示选择对话框（即使结果为空）
-                    self.show_selection_dialog(idx, results, folder_name)
-                    # 检查用户是否选择了结果
-                    if self.selection_result:
-                        album_info = self.process_release(self.selection_result, folder_path)
-                        if album_info:
-                            self.album_folders[idx] = (folder_path, folder_name, album_info)
-                            suggested_name = album_info.get_suggested_folder_name()
-                            self.update_tree_item(idx, status='已完成', album_info=album_info, suggested=suggested_name)
-                        self.selection_result = None
-                    break
+        ttk.Button(button_frame, text=self.lang.t('copy_info'), command=copy_to_clipboard).pack(side=tk.LEFT, padx=5)
+        ttk.Button(button_frame, text=self.lang.t('close'), command=on_close).pack(side=tk.LEFT, padx=5)
     
     def single_search(self):
         """单次查询 - 仅对该条信息检索discogs"""
@@ -1458,7 +1834,7 @@ Discogs ID: {album_info.release_id}
                     self.discogs_api = DiscogsAPI(self.DISCOGS_TOKEN)
                 
                 # 更新状态为搜索中
-                self.update_tree_item(idx, status='搜索中')
+                self.update_tree_item(idx, status='searching')
                 
                 # 搜索Discogs
                 results = self.discogs_api.search(folder_name)
@@ -1470,7 +1846,7 @@ Discogs ID: {album_info.release_id}
                         self.album_folders[idx] = (folder_path, folder_name, album_info)
                         suggested_name = album_info.get_suggested_folder_name()
                         self.update_tree_item(idx, status='已完成', album_info=album_info, suggested=suggested_name)
-                        self.show_toast("查询成功", duration=1500)
+                        self.show_toast(self.lang.t('search_success'), duration=1500)
                 else:
                     # 多个结果或未找到，显示选择对话框
                     self.show_selection_dialog(idx, results, folder_name)
@@ -1481,10 +1857,10 @@ Discogs ID: {album_info.release_id}
                             self.album_folders[idx] = (folder_path, folder_name, album_info)
                             suggested_name = album_info.get_suggested_folder_name()
                             self.update_tree_item(idx, status='已完成', album_info=album_info, suggested=suggested_name)
-                            self.show_toast("查询成功", duration=1500)
+                            self.show_toast(self.lang.t('search_success'), duration=1500)
                         self.selection_result = None
                     elif not results:
-                        self.update_tree_item(idx, status='未找到')
+                        self.update_tree_item(idx, status='not_found')
                 break
     
     def manual_input(self):
@@ -1502,88 +1878,211 @@ Discogs ID: {album_info.release_id}
             if name == folder_name:
                 # 创建输入对话框
                 dialog = tk.Toplevel(self.root)
-                dialog.title("手动录入专辑信息")
+                dialog.title(self.lang.t('manual_input_title'))
                 dialog.configure(bg=self.bg_color)
+                dialog.transient(self.root)
+                dialog.grab_set()  # 模态对话框，禁止操作主窗体
                 
-                # 居中显示
+                # 居中显示（相对于主窗体）
                 dialog_width = 720
                 dialog_height = 650
+                
+                # 先设置大小，再居中
+                dialog.geometry(f"{dialog_width}x{dialog_height}")
                 dialog.update_idletasks()
-                screen_width = dialog.winfo_screenwidth()
-                screen_height = dialog.winfo_screenheight()
-                x = (screen_width // 2) - (dialog_width // 2)
-                y = (screen_height // 2) - (dialog_height // 2)
-                dialog.geometry(f"{dialog_width}x{dialog_height}+{x}+{y}")
+                self.center_dialog(dialog, dialog_width, dialog_height)
                 
-                # 创建滚动框架
-                canvas = tk.Canvas(dialog, bg=self.bg_color, highlightthickness=0)
-                scrollbar = ttk.Scrollbar(dialog, orient="vertical", command=canvas.yview)
-                scrollable_frame = ttk.Frame(canvas)
+                # 保存对话框引用，以便跟随主窗体移动（在完全创建后添加）
+                self.open_dialogs.append((dialog, dialog_width, dialog_height))
                 
-                scrollable_frame.bind(
-                    "<Configure>",
-                    lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
-                )
+                # 对话框关闭时从列表中移除
+                def on_dialog_close():
+                    try:
+                        self.open_dialogs.remove((dialog, dialog_width, dialog_height))
+                    except:
+                        pass
+                    dialog.destroy()
                 
-                canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
-                canvas.configure(yscrollcommand=scrollbar.set)
+                dialog.protocol("WM_DELETE_WINDOW", on_dialog_close)
                 
-                # 输入字段
+                # 主容器 - 直接使用Frame，不使用滚动条
+                scrollable_frame = tk.Frame(dialog, bg=self.bg_color)
+                scrollable_frame.pack(fill=tk.BOTH, expand=True, padx=15, pady=3)
+                
                 fields = {}
-                field_names = [
-                    ('音乐人', 'artist'),
-                    ('专辑名', 'album_name'),
-                    ('出版年份', 'year'),
-                    ('唱片厂牌', 'label'),
-                    ('厂牌编号', 'catalog_no'),
-                    ('音乐风格', 'genre'),
-                    ('风格标签', 'style'),
-                    ('国家', 'country'),
-                    ('Discogs ID', 'discogs_id'),
-                    ('备注信息', 'notes')
+                current_row = 0
+                
+                # ========== 第一部分：基本信息 ==========
+                basic_frame = tk.Frame(scrollable_frame, bg=self.secondary_bg, relief=tk.FLAT)
+                basic_frame.grid(row=current_row, column=0, columnspan=2, sticky='ew', padx=5, pady=(0, 3))
+                current_row += 1
+                
+                tk.Label(basic_frame, text=self.lang.t('basic_info'), 
+                        bg=self.secondary_bg, fg=self.accent_color,
+                        font=('Arial', 10, 'bold')).pack(anchor='w', padx=12, pady=(3, 3))
+                
+                basic_fields = [
+                    ('artist_label', 'artist'),
+                    ('album_name_label', 'album_name'),
+                    ('year_label', 'year')
                 ]
                 
-                row = 0
-                for label_text, field_key in field_names:
-                    ttk.Label(scrollable_frame, text=f"{label_text}:", 
-                             background=self.bg_color, foreground=self.text_color).grid(
-                        row=row, column=0, sticky='w', padx=10, pady=5)
+                for label_key, field_key in basic_fields:
+                    field_frame = tk.Frame(basic_frame, bg=self.secondary_bg)
+                    field_frame.pack(fill=tk.X, padx=12, pady=1)
                     
-                    if field_key == 'notes':
-                        # 备注信息使用多行文本框
-                        text_widget = tk.Text(scrollable_frame, height=5, width=40,
-                                             bg=self.secondary_bg, fg=self.text_color,
-                                             insertbackground=self.text_color,
-                                             borderwidth=0, highlightthickness=0)
-                        text_widget.grid(row=row, column=1, padx=10, pady=5, sticky='ew')
-                        fields[field_key] = text_widget
-                    else:
-                        entry = tk.Entry(scrollable_frame, width=40,
-                                        bg=self.secondary_bg, fg=self.text_color,
-                                        insertbackground=self.text_color,
-                                        borderwidth=0, highlightthickness=0)
-                        entry.grid(row=row, column=1, padx=10, pady=5, sticky='ew')
-                        fields[field_key] = entry
+                    tk.Label(field_frame, text=f"{self.lang.t(label_key)}:", 
+                            bg=self.secondary_bg, fg=self.text_color,
+                            font=('Arial', 9), width=12, anchor='w').pack(side=tk.LEFT)
                     
-                    row += 1
+                    entry = tk.Entry(field_frame, width=90,
+                                    bg=self.bg_color, fg=self.text_color,
+                                    insertbackground=self.text_color,
+                                    borderwidth=1, highlightthickness=1,
+                                    highlightbackground=self.accent_bg,
+                                    highlightcolor=self.accent_color,
+                                    relief=tk.FLAT)
+                    entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(8, 0))
+                    fields[field_key] = entry
                 
-                # 曲目表输入区域
-                ttk.Label(scrollable_frame, text="曲目表 (每行一个，格式：位置. 标题 时长):", 
-                         background=self.bg_color, foreground=self.text_color).grid(
-                    row=row, column=0, columnspan=2, sticky='w', padx=10, pady=5)
-                row += 1
+                # ========== 第二部分：发行信息 ==========
+                release_frame = tk.Frame(scrollable_frame, bg=self.secondary_bg, relief=tk.FLAT)
+                release_frame.grid(row=current_row, column=0, columnspan=2, sticky='ew', padx=5, pady=(0, 3))
+                current_row += 1
                 
-                tracklist_text = tk.Text(scrollable_frame, height=8, width=50,
-                                        bg=self.secondary_bg, fg=self.text_color,
+                tk.Label(release_frame, text=self.lang.t('release_info'), 
+                        bg=self.secondary_bg, fg=self.accent_color,
+                        font=('Arial', 10, 'bold')).pack(anchor='w', padx=12, pady=(3, 3))
+                
+                release_fields = [
+                    ('label_label', 'label'),
+                    ('catalog_no_label', 'catalog_no'),
+                    ('country_label', 'country')
+                ]
+                
+                for label_key, field_key in release_fields:
+                    field_frame = tk.Frame(release_frame, bg=self.secondary_bg)
+                    field_frame.pack(fill=tk.X, padx=12, pady=1)
+                    
+                    tk.Label(field_frame, text=f"{self.lang.t(label_key)}:", 
+                            bg=self.secondary_bg, fg=self.text_color,
+                            font=('Arial', 9), width=12, anchor='w').pack(side=tk.LEFT)
+                    
+                    entry = tk.Entry(field_frame, width=90,
+                                    bg=self.bg_color, fg=self.text_color,
+                                    insertbackground=self.text_color,
+                                    borderwidth=1, highlightthickness=1,
+                                    highlightbackground=self.accent_bg,
+                                    highlightcolor=self.accent_color,
+                                    relief=tk.FLAT)
+                    entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(8, 0))
+                    fields[field_key] = entry
+                
+                # ========== 第三部分：分类信息 ==========
+                category_frame = tk.Frame(scrollable_frame, bg=self.secondary_bg, relief=tk.FLAT)
+                category_frame.grid(row=current_row, column=0, columnspan=2, sticky='ew', padx=5, pady=(0, 3))
+                current_row += 1
+                
+                tk.Label(category_frame, text=self.lang.t('category_info'), 
+                        bg=self.secondary_bg, fg=self.accent_color,
+                        font=('Arial', 10, 'bold')).pack(anchor='w', padx=12, pady=(3, 3))
+                
+                category_fields = [
+                    ('genre_label', 'genre'),
+                    ('style_label', 'style')
+                ]
+                
+                for label_key, field_key in category_fields:
+                    field_frame = tk.Frame(category_frame, bg=self.secondary_bg)
+                    field_frame.pack(fill=tk.X, padx=12, pady=1)
+                    
+                    tk.Label(field_frame, text=f"{self.lang.t(label_key)}:", 
+                            bg=self.secondary_bg, fg=self.text_color,
+                            font=('Arial', 9), width=12, anchor='w').pack(side=tk.LEFT)
+                    
+                    entry = tk.Entry(field_frame, width=90,
+                                    bg=self.bg_color, fg=self.text_color,
+                                    insertbackground=self.text_color,
+                                    borderwidth=1, highlightthickness=1,
+                                    highlightbackground=self.accent_bg,
+                                    highlightcolor=self.accent_color,
+                                    relief=tk.FLAT)
+                    entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(8, 0))
+                    fields[field_key] = entry
+                
+                # ========== 第四部分：其他信息 ==========
+                other_frame = tk.Frame(scrollable_frame, bg=self.secondary_bg, relief=tk.FLAT)
+                other_frame.grid(row=current_row, column=0, columnspan=2, sticky='ew', padx=5, pady=(0, 3))
+                current_row += 1
+                
+                tk.Label(other_frame, text=self.lang.t('other_info'), 
+                        bg=self.secondary_bg, fg=self.accent_color,
+                        font=('Arial', 10, 'bold')).pack(anchor='w', padx=12, pady=(3, 3))
+                
+                # Discogs ID
+                discogs_frame = tk.Frame(other_frame, bg=self.secondary_bg)
+                discogs_frame.pack(fill=tk.X, padx=12, pady=1)
+                
+                tk.Label(discogs_frame, text=f"{self.lang.t('discogs_id_label')}:", 
+                        bg=self.secondary_bg, fg=self.text_color,
+                        font=('Arial', 9), width=12, anchor='w').pack(side=tk.LEFT)
+                
+                discogs_entry = tk.Entry(discogs_frame, width=90,
+                                        bg=self.bg_color, fg=self.text_color,
                                         insertbackground=self.text_color,
-                                        borderwidth=0, highlightthickness=0)
-                tracklist_text.grid(row=row, column=0, columnspan=2, padx=10, pady=5, sticky='ew')
+                                        borderwidth=1, highlightthickness=1,
+                                        highlightbackground=self.accent_bg,
+                                        highlightcolor=self.accent_color,
+                                        relief=tk.FLAT)
+                discogs_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(8, 0))
+                fields['discogs_id'] = discogs_entry
+                
+                # 备注信息
+                notes_frame = tk.Frame(other_frame, bg=self.secondary_bg)
+                notes_frame.pack(fill=tk.BOTH, expand=True, padx=12, pady=1)
+                
+                tk.Label(notes_frame, text=f"{self.lang.t('notes_label')}:", 
+                        bg=self.secondary_bg, fg=self.text_color,
+                        font=('Arial', 9), anchor='w').pack(anchor='w', pady=(0, 3))
+                
+                notes_text = tk.Text(notes_frame, height=4, width=90,
+                                    bg=self.bg_color, fg=self.text_color,
+                                    insertbackground=self.text_color,
+                                    borderwidth=1, highlightthickness=1,
+                                    highlightbackground=self.accent_bg,
+                                    highlightcolor=self.accent_color,
+                                    relief=tk.FLAT, wrap=tk.WORD)
+                notes_text.pack(fill=tk.BOTH, expand=True)
+                fields['notes'] = notes_text
+                
+                # ========== 第五部分：曲目表 ==========
+                tracklist_frame = tk.Frame(scrollable_frame, bg=self.secondary_bg, relief=tk.FLAT)
+                tracklist_frame.grid(row=current_row, column=0, columnspan=2, sticky='ew', padx=5, pady=(0, 3))
+                current_row += 1
+                
+                tk.Label(tracklist_frame, text=self.lang.t('tracklist'), 
+                        bg=self.secondary_bg, fg=self.accent_color,
+                        font=('Arial', 10, 'bold')).pack(anchor='w', padx=12, pady=(3, 3))
+                
+                # 曲目表提示
+                hint_label = tk.Label(tracklist_frame, 
+                                     text=self.lang.t('tracklist_hint'),
+                                     bg=self.secondary_bg, fg=self.text_color,
+                                     font=('Arial', 8), anchor='w', justify=tk.LEFT)
+                hint_label.pack(anchor='w', padx=12, pady=(0, 3))
+                
+                tracklist_text = tk.Text(tracklist_frame, height=8, width=90,
+                                        bg=self.bg_color, fg=self.text_color,
+                                        insertbackground=self.text_color,
+                                        borderwidth=1, highlightthickness=1,
+                                        highlightbackground=self.accent_bg,
+                                        highlightcolor=self.accent_color,
+                                        relief=tk.FLAT, wrap=tk.WORD,
+                                        font=('Consolas', 9))
+                tracklist_text.pack(fill=tk.BOTH, expand=True, padx=12, pady=(0, 3))
                 fields['tracklist'] = tracklist_text
                 
-                scrollable_frame.columnconfigure(1, weight=1)
-                
-                canvas.pack(side="left", fill="both", expand=True)
-                scrollbar.pack(side="right", fill="y")
+                scrollable_frame.columnconfigure(0, weight=1)
                 
                 def save_manual_input():
                     """保存手动录入的信息"""
@@ -1639,16 +2138,43 @@ Discogs ID: {album_info.release_id}
                         suggested_name = album_info.get_suggested_folder_name()
                         self.update_tree_item(idx, status='已完成', album_info=album_info, suggested=suggested_name)
                         
-                        self.show_toast("手动录入成功", duration=1500)
+                        self.show_toast(self.lang.t('manual_input_success'), duration=1500)
+                        try:
+                            self.open_dialogs.remove((dialog, dialog_width, dialog_height))
+                        except:
+                            pass
                         dialog.destroy()
                     except Exception as e:
-                        messagebox.showerror("错误", f"保存失败: {e}")
+                        messagebox.showerror(self.lang.t('error'), f"{self.lang.t('save_failed')}: {e}")
                 
-                # 按钮
-                button_frame = ttk.Frame(dialog)
-                button_frame.pack(pady=10)
-                ttk.Button(button_frame, text="保存", command=save_manual_input).pack(side=tk.LEFT, padx=5)
-                ttk.Button(button_frame, text="取消", command=dialog.destroy).pack(side=tk.LEFT, padx=5)
+                def on_cancel():
+                    try:
+                        self.open_dialogs.remove((dialog, dialog_width, dialog_height))
+                    except:
+                        pass
+                    dialog.destroy()
+                
+                # 按钮区域 - 固定在底部
+                button_frame = tk.Frame(dialog, bg=self.bg_color)
+                button_frame.pack(fill=tk.X, padx=15, pady=(0, 10))
+                
+                # 分隔线
+                separator = tk.Frame(button_frame, bg=self.accent_bg, height=1)
+                separator.pack(fill=tk.X, pady=(0, 10))
+                
+                # 按钮容器
+                btn_container = ttk.Frame(button_frame)
+                btn_container.pack()
+                
+                # 保存按钮 - 使用ttk.Button与其他面板保持一致
+                save_btn = ttk.Button(btn_container, text=self.lang.t('save'),
+                                     command=save_manual_input)
+                save_btn.pack(side=tk.LEFT, padx=(0, 5))
+                
+                # 取消按钮 - 使用ttk.Button与其他面板保持一致
+                cancel_btn = ttk.Button(btn_container, text=self.lang.t('cancel'),
+                                        command=on_cancel)
+                cancel_btn.pack(side=tk.LEFT, padx=5)
                 
                 break
     
@@ -1689,11 +2215,11 @@ Discogs ID: {album_info.release_id}
                     self.album_folders[idx] = (new_path, cleaned_name, album_info)
                     
                     # 更新树视图中的显示
-                    self.update_tree_item(idx, status='已完成' if album_info else '待处理', 
+                    self.update_tree_item(idx, status='completed' if album_info else 'pending', 
                                          album_info=album_info, 
                                          suggested=cleaned_name if album_info else '')
                     
-                    self.show_toast(f"文件夹已重命名为: {cleaned_name}", duration=2000)
+                    self.show_toast(self.lang.t('folder_renamed', name=cleaned_name), duration=2000)
                 except Exception as e:
                     messagebox.showerror("错误", f"重命名失败: {e}")
                 break
@@ -1735,7 +2261,7 @@ Discogs ID: {album_info.release_id}
                 error_count += 1
                 print(f"重命名失败 {folder_name}: {e}")
         
-        self.show_toast(f"批量重命名完成 - 成功: {rename_count}, 跳过: {skipped_count}, 失败: {error_count}", duration=2500)
+        self.show_toast(self.lang.t('batch_rename_complete', success=rename_count, skipped=skipped_count, failed=error_count), duration=2500)
     
     def open_folder(self):
         """打开文件夹"""
@@ -1790,7 +2316,7 @@ Discogs ID: {album_info.release_id}
                                     cmd = f'foobar2000.exe "{folder_path}" /play'
                                     subprocess.Popen(shlex.split(cmd), shell=False,
                                                    creationflags=subprocess.CREATE_NO_WINDOW if hasattr(subprocess, 'CREATE_NO_WINDOW') else 0)
-                                    self.show_toast("正在foobar2000中播放", duration=1500)
+                                    self.show_toast(self.lang.t('playing_in_foobar'), duration=1500)
                                     return
                                 except FileNotFoundError:
                                     pass
@@ -1805,22 +2331,22 @@ Discogs ID: {album_info.release_id}
                             cmd = f'"{foobar_exe}" "{folder_path}" /play'
                             subprocess.Popen(shlex.split(cmd), shell=False,
                                            creationflags=subprocess.CREATE_NO_WINDOW if hasattr(subprocess, 'CREATE_NO_WINDOW') else 0)
-                            self.show_toast("正在foobar2000中播放", duration=1500)
+                            self.show_toast(self.lang.t('playing_in_foobar'), duration=1500)
                         else:
                             # 尝试直接调用foobar2000（可能在PATH中）
                             try:
                                 cmd = f'foobar2000.exe "{folder_path}" /play'
                                 subprocess.Popen(shlex.split(cmd), shell=False,
                                                creationflags=subprocess.CREATE_NO_WINDOW if hasattr(subprocess, 'CREATE_NO_WINDOW') else 0)
-                                self.show_toast("正在foobar2000中播放", duration=1500)
+                                self.show_toast(self.lang.t('playing_in_foobar'), duration=1500)
                             except FileNotFoundError:
-                                self.show_toast("未找到foobar2000播放器，请确保已安装", duration=2000)
+                                self.show_toast(self.lang.t('foobar_not_found'), duration=2000)
                             except Exception as e:
                                 print(f"调用播放器出错: {e}")
-                                self.show_toast(f"播放失败: {str(e)}", duration=2000)
+                                self.show_toast(self.lang.t('play_error', error=str(e)), duration=2000)
                     else:
                         # Linux/Mac系统
-                        self.show_toast("当前系统不支持此功能", duration=2000)
+                        self.show_toast(self.lang.t('system_not_supported'), duration=2000)
                 except Exception as e:
                     self.show_toast(f"播放失败: {str(e)}", duration=2000)
                 break
@@ -1892,7 +2418,7 @@ Discogs ID: {album_info.release_id}
         # 保存文件
         try:
             wb.save(filename)
-            self.show_toast(f"Excel文件已保存: {filename}", duration=2000)
+            self.show_toast(self.lang.t('excel_saved', filename=filename), duration=2000)
         except Exception as e:
             messagebox.showerror("错误", f"保存失败: {e}")
 
