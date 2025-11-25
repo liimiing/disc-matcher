@@ -1155,7 +1155,7 @@ class DiscMatcherApp:
                 self.save_config()
                 
                 # 重新设置窗口标题
-                self.root.title(self.lang.t('app_title') + 'V3.3')
+                self.root.title(self.lang.t('app_title') + ' V3.3')
                 
                 # 更新Token状态标签
                 token_status = self.lang.t('token_configured') if (self.DISCOGS_TOKEN and self.DISCOGS_TOKEN != "YOUR_DISCOGS_TOKEN_HERE") else self.lang.t('token_not_configured')
