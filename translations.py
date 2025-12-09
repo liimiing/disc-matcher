@@ -108,6 +108,8 @@ TRANSLATIONS = {
         'category_info': '分类信息',
         'other_info': '其他信息',
         'tracklist_hint': '格式：位置. 标题 (时长)，每行一首曲目',
+        'loading': '加载中...',
+        'no_cover': '[无封面]',
     },
     'zh_TW': {  # 繁體中文
         'app_title': 'Discogs 音樂專輯匹配器',
@@ -210,6 +212,8 @@ TRANSLATIONS = {
         'category_info': '分類資訊',
         'other_info': '其他資訊',
         'tracklist_hint': '格式：位置. 標題 (時長)，每行一首曲目',
+        'loading': '載入中...',
+        'no_cover': '[無封面]',
     },
     'en_US': {
         'app_title': 'Discogs Album Matcher',
@@ -312,6 +316,8 @@ TRANSLATIONS = {
         'category_info': 'Category Information',
         'other_info': 'Other Information',
         'tracklist_hint': 'Format: Position. Title (Duration), one track per line',
+        'loading': 'Loading...',
+        'no_cover': '[No Cover]',
     },
     'es_ES': {  # Español
         'app_title': 'Discogs Matcher de Álbumes',
@@ -469,6 +475,8 @@ TRANSLATIONS = {
         'category_info': 'Informações de Categoria',
         'other_info': 'Outras Informações',
         'tracklist_hint': 'Formato: Posição. Título (Duração), uma faixa por linha',
+        'loading': 'Carregando...',
+        'no_cover': '[Sem Capa]',
         # 对话框标题
         'selection_title': 'Selecionar Álbum',
         'details_title': 'Detalhes do Álbum',
@@ -486,7 +494,7 @@ TRANSLATIONS = {
         'notes_label': 'Notas',
         'tracklist_label': 'Lista de Faixas',
         'publisher_label': 'Ano',
-        # 其他对话框文本
+        # Outras对话框文本
         'folder_colon': 'Pasta',
         'manual_input_success': 'Entrada manual bem-sucedida',
         'save_failed': 'Salvamento falhou',
@@ -571,6 +579,8 @@ TRANSLATIONS = {
         'category_info': 'Informations de Catégorie',
         'other_info': 'Autres Informations',
         'tracklist_hint': 'Format: Position. Titre (Durée), une piste par ligne',
+        'loading': 'Chargement...',
+        'no_cover': '[Pas de Pochette]',
         # 对话框标题
         'selection_title': 'Sélectionner un Album',
         'details_title': 'Détails de l\'Album',
@@ -582,13 +592,13 @@ TRANSLATIONS = {
         'label_label': 'Label',
         'catalog_no_label': 'Numéro de Catalogue',
         'genre_label': 'Genre',
-        'style_label': 'Style',
+        'style_label': 'Stil',
         'country_label': 'Pays',
         'discogs_id_label': 'Discogs ID',
         'notes_label': 'Notes',
         'tracklist_label': 'Liste des Pistes',
         'publisher_label': 'Année',
-        # 其他对话框文本
+        # Autres对话框文本
         'folder_colon': 'Dossier',
         'manual_input_success': 'Saisie manuelle réussie',
         'save_failed': 'Échec de l\'enregistrement',
@@ -673,6 +683,8 @@ TRANSLATIONS = {
         'category_info': 'Kategorieinformationen',
         'other_info': 'Weitere Informationen',
         'tracklist_hint': 'Format: Position. Titel (Dauer), ein Track pro Zeile',
+        'loading': 'Laden...',
+        'no_cover': '[Kein Cover]',
         # 对话框标题
         'selection_title': 'Album Auswählen',
         'details_title': 'Album-Details',
@@ -790,6 +802,8 @@ TRANSLATIONS = {
         'category_info': 'カテゴリ情報',
         'other_info': 'その他の情報',
         'tracklist_hint': '形式: 位置. タイトル (時間), 1行に1トラック',
+        'loading': '読み込み中...',
+        'no_cover': '[カバーなし]',
         'tracklist_label': 'トラックリスト',
         'publisher_label': '年',
         # 其他对话框文本
