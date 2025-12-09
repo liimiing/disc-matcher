@@ -614,7 +614,7 @@ class DiscMatcherApp:
         self.root.configure(bg=self.bg_color)
         
         # 设置窗口标题（根据当前语言）
-        self.root.title(self.lang.t('app_title') + ' V3.4')
+        self.root.title(self.lang.t('app_title') + ' V3.5')
         
         # 配置ttk样式
         style = ttk.Style()
@@ -1340,8 +1340,8 @@ class DiscMatcherApp:
                 # 在主线程中显示对话框（使用after_idle确保立即执行）
                 self.root.after_idle(lambda i=idx, r=results, q=folder_name: self.show_selection_dialog(i, r, q))
                 
-                # 等待用户选择（最多等待5分钟，避免无限等待）
-                self.waiting_for_selection.wait(timeout=300)
+                # 等待用户选择（无限等待）
+                self.waiting_for_selection.wait()
                 
                 # 获取用户选择的结果
                 if self.selection_result:
@@ -1450,40 +1450,45 @@ class DiscMatcherApp:
         dialog.transient(self.root)
         dialog.grab_set()  # 模态对话框，禁止操作主窗体
         
-        # 设置窗口大小并居中显示（相对于主窗体）
-        dialog_width = 960
-        dialog_height = 600
+        # 增加宽度以容纳详细信息
+        dialog_width = 1100
+        dialog_height = 700
         
         # 先设置大小，再居中
         dialog.geometry(f"{dialog_width}x{dialog_height}")
         dialog.update_idletasks()
         self.center_dialog(dialog, dialog_width, dialog_height)
         
-        # 保存对话框引用，以便跟随主窗体移动（在完全创建后添加）
+        # 保存对话框引用
         self.open_dialogs.append((dialog, dialog_width, dialog_height))
         
-        # 对话框关闭时从列表中移除
         def on_dialog_close():
+            self.selection_result = None
             try:
                 self.open_dialogs.remove((dialog, dialog_width, dialog_height))
             except:
                 pass
+            self.selection_dialog_active = False
             dialog.destroy()
+            self.waiting_for_selection.set()
         
         dialog.protocol("WM_DELETE_WINDOW", on_dialog_close)
         
         folder_name = self.album_folders[idx][1]
         if search_query is None:
             search_query = folder_name
+            
+        # 顶部区域：文件夹名和搜索框
+        top_frame = tk.Frame(dialog, bg=self.bg_color)
+        top_frame.pack(side=tk.TOP, fill=tk.X, padx=10, pady=5)
         
-        # 文件夹名称标签（可点击，点击后填入搜索框）
-        folder_label_frame = tk.Frame(dialog, bg=self.bg_color)
-        folder_label_frame.pack(pady=5)
+        # 文件夹名称
+        folder_label_frame = tk.Frame(top_frame, bg=self.bg_color)
+        folder_label_frame.pack(side=tk.TOP, fill=tk.X, pady=(0, 5))
         
-        folder_label_text = tk.Label(folder_label_frame, text=f"{self.lang.t('folder')}: ", 
-                                     font=('Arial', 10, 'bold'),
-                                     background=self.bg_color, foreground=self.text_color)
-        folder_label_text.pack(side=tk.LEFT)
+        tk.Label(folder_label_frame, text=f"{self.lang.t('folder')}: ", 
+                 font=('Arial', 10, 'bold'),
+                 background=self.bg_color, foreground=self.text_color).pack(side=tk.LEFT)
         
         folder_name_label = tk.Label(folder_label_frame, text=folder_name,
                                      font=('Arial', 10, 'bold'),
@@ -1491,17 +1496,9 @@ class DiscMatcherApp:
                                      cursor='hand2')
         folder_name_label.pack(side=tk.LEFT)
         
-        # 点击文件夹名称时，将其填入搜索框
-        def on_folder_name_click(event):
-            search_var.set(folder_name)
-            search_entry.focus_set()
-            search_entry.select_range(0, tk.END)  # 选中所有文本，方便修改
-        
-        folder_name_label.bind('<Button-1>', on_folder_name_click)
-        
-        # 搜索关键词输入框和重查按钮
-        search_frame = ttk.Frame(dialog)
-        search_frame.pack(pady=10, padx=10, fill=tk.X)
+        # 搜索框区域
+        search_frame = ttk.Frame(top_frame)
+        search_frame.pack(side=tk.TOP, fill=tk.X)
         
         ttk.Label(search_frame, text=f"{self.lang.t('search_keyword')}:", 
                  background=self.bg_color, foreground=self.text_color).pack(side=tk.LEFT, padx=5)
@@ -1512,16 +1509,218 @@ class DiscMatcherApp:
                                insertbackground=self.text_color,
                                borderwidth=0, highlightthickness=0)
         search_entry.pack(side=tk.LEFT, padx=5, fill=tk.X, expand=True)
+
+        def on_folder_name_click(event):
+            search_var.set(folder_name)
+            search_entry.focus_set()
+            search_entry.select_range(0, tk.END)
+        folder_name_label.bind('<Button-1>', on_folder_name_click)
         
-        # 存储当前结果列表（用于更新）
+        # 存储当前结果
         current_results = results.copy()
-        listbox_ref = [None]  # 使用列表来存储引用
+        listbox_ref = [None]
         
+        # 主体区域：左右分割
+        paned = tk.PanedWindow(dialog, orient=tk.HORIZONTAL, bg=self.bg_color, sashwidth=4, sashrelief='flat')
+        paned.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
+        
+        # 左侧：搜索结果列表
+        left_frame = ttk.Frame(paned)
+        paned.add(left_frame, minsize=400, width=500)
+        
+        # 结果状态标签
+        status_label = ttk.Label(left_frame, text="", font=('Arial', 9),
+                                background=self.bg_color, foreground=self.text_color)
+        status_label.pack(pady=(0, 5), anchor='w')
+        
+        # 结果列表
+        listbox_frame = ttk.Frame(left_frame)
+        listbox_frame.pack(fill=tk.BOTH, expand=True)
+        
+        listbox = tk.Listbox(listbox_frame, font=('Arial', 9),
+                            bg=self.secondary_bg, fg=self.text_color,
+                            selectbackground=self.accent_color,
+                            selectforeground='white',
+                            borderwidth=0, highlightthickness=0)
+        scrollbar = ttk.Scrollbar(listbox_frame, orient=tk.VERTICAL, command=listbox.yview)
+        listbox.configure(yscrollcommand=scrollbar.set)
+        
+        listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        listbox_ref[0] = listbox
+        
+        # 右侧：详细信息
+        right_frame = ttk.Frame(paned)
+        paned.add(right_frame, minsize=400)
+        
+        # 详细信息容器
+        details_container = tk.Frame(right_frame, bg=self.secondary_bg)
+        details_container.pack(fill=tk.BOTH, expand=True, padx=(5, 0))
+        
+        # 信息显示控件
+        # 封面
+        cover_label = tk.Label(details_container, bg=self.secondary_bg)
+        cover_label.pack(pady=10)
+        
+        # 文本信息区域
+        info_text_frame = tk.Frame(details_container, bg=self.secondary_bg)
+        info_text_frame.pack(fill=tk.X, padx=10)
+        
+        def create_info_row(parent, label_text):
+            row = tk.Frame(parent, bg=self.secondary_bg)
+            row.pack(fill=tk.X, pady=2)
+            tk.Label(row, text=label_text, width=10, anchor='w', 
+                     bg=self.secondary_bg, fg='#888888').pack(side=tk.LEFT)
+            val_label = tk.Label(row, text="", anchor='w', justify='left', wraplength=400,
+                                 bg=self.secondary_bg, fg=self.text_color)
+            val_label.pack(side=tk.LEFT, fill=tk.X, expand=True)
+            return val_label
+            
+        lbl_artist = create_info_row(info_text_frame, f"{self.lang.t('artist_label')}:")
+        lbl_album = create_info_row(info_text_frame, f"{self.lang.t('album_name_label')}:")
+        lbl_year = create_info_row(info_text_frame, f"{self.lang.t('year_label')}:")
+        lbl_label = create_info_row(info_text_frame, f"{self.lang.t('label_label')}:")
+        lbl_catno = create_info_row(info_text_frame, f"{self.lang.t('catalog_no_label')}:")
+        lbl_style = create_info_row(info_text_frame, f"{self.lang.t('style_label')}:")
+        
+        # 曲目表
+        tk.Label(details_container, text=f"{self.lang.t('tracklist_label')}:", bg=self.secondary_bg, fg='#888888', anchor='w').pack(fill=tk.X, padx=10, pady=(10, 2))
+        
+        track_listbox = tk.Listbox(details_container, font=('Arial', 9),
+                                  bg=self.bg_color, fg=self.text_color,
+                                  borderwidth=0, highlightthickness=0,
+                                  height=10)
+        track_scrollbar = ttk.Scrollbar(details_container, orient=tk.VERTICAL, command=track_listbox.yview)
+        track_listbox.configure(yscrollcommand=track_scrollbar.set)
+        
+        track_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(10, 0), pady=(0, 10))
+        track_scrollbar.pack(side=tk.LEFT, fill=tk.Y, pady=(0, 10), padx=(0, 10))
+        
+        # 底部按钮区域
+        button_frame = ttk.Frame(dialog)
+        button_frame.pack(side=tk.BOTTOM, fill=tk.X, pady=10)
+        
+        # 用于更新UI的helper
+        def update_details_ui(details_data, img_data=None):
+            if not dialog.winfo_exists(): return
+            
+            # 更新文本信息
+            if details_data:
+                track_listbox.delete(0, tk.END)
+                if 'tracklist' in details_data:
+                    for track in details_data['tracklist']:
+                        dur = f" ({track['duration']})" if track.get('duration') else ""
+                        track_listbox.insert(tk.END, f"{track.get('position', '')} - {track.get('title', '')}{dur}")
+            
+            # 更新图片
+            if img_data:
+                try:
+                    pil_image = Image.open(io.BytesIO(img_data))
+                    # 调整大小，最大 200x200
+                    pil_image.thumbnail((200, 200))
+                    tk_image = ImageTk.PhotoImage(pil_image)
+                    cover_label.config(image=tk_image, text="")
+                    cover_label.image = tk_image
+                except Exception as e:
+                    print(f"Error loading image: {e}")
+                    cover_label.config(image='', text=self.lang.t('no_cover'))
+                    
+        def fetch_details_thread(release_id, cover_url):
+            details = None
+            img_data = None
+            
+            # 获取详情（包括曲目）
+            if release_id:
+                try:
+                    details = self.discogs_api.get_release_details(release_id)
+                except:
+                    pass
+            
+            # 下载图片
+            if cover_url:
+                try:
+                    headers = {'User-Agent': 'DiscMatcher/1.0'}
+                    resp = requests.get(cover_url, headers=headers, timeout=5)
+                    if resp.status_code == 200:
+                        img_data = resp.content
+                except:
+                    pass
+            
+            self.root.after(0, lambda: update_details_ui(details, img_data))
+
+        # 选中事件处理
+        def on_list_select(event):
+            selection = listbox.curselection()
+            if not selection: return
+            
+            idx = selection[0]
+            if idx >= len(current_results): return
+            
+            result = current_results[idx]
+            
+            # 立即更新基础信息
+            title_parts = result.get('title', '').split(' - ', 1)
+            artist = title_parts[0] if len(title_parts) > 1 else result.get('title', '')
+            album = title_parts[1] if len(title_parts) > 1 else ''
+            
+            lbl_artist.config(text=artist)
+            lbl_album.config(text=album)
+            lbl_year.config(text=result.get('year', ''))
+            
+            labels = result.get('label', [])
+            label_names = [l.get('name', '') if isinstance(l, dict) else str(l) for l in labels]
+            lbl_label.config(text=', '.join(label_names[:2]))
+            
+            catno = result.get('catno', '')
+            lbl_catno.config(text=catno)
+            
+            styles = result.get('style', []) or result.get('genre', [])
+            lbl_style.config(text=', '.join(styles[:3]) if styles else '')
+            
+            # 重置详细信息
+            track_listbox.delete(0, tk.END)
+            track_listbox.insert(tk.END, self.lang.t('loading'))
+            cover_label.config(image='', text=self.lang.t('loading'))
+            cover_label.image = None
+            
+            # 异步加载详情和图片
+            threading.Thread(target=fetch_details_thread, 
+                           args=(result.get('id'), result.get('thumb') or result.get('cover_image')),
+                           daemon=True).start()
+
+        listbox.bind('<<ListboxSelect>>', on_list_select)
+
+        def refresh_ui_list():
+            listbox.delete(0, tk.END)
+            # 重置右侧
+            lbl_artist.config(text="")
+            lbl_album.config(text="")
+            lbl_year.config(text="")
+            lbl_label.config(text="")
+            lbl_catno.config(text="")
+            lbl_style.config(text="")
+            track_listbox.delete(0, tk.END)
+            cover_label.config(image='', text="")
+            cover_label.image = None
+            
+            for result in current_results:
+                title = result.get('title', '')
+                year = result.get('year', '')
+                label = result.get('label', [])
+                label_str = ', '.join([l.get('name', '') if isinstance(l, dict) else str(l) for l in label[:2]]) if label else ''
+                display_text = f"{title} ({year}) - {label_str}"
+                listbox.insert(tk.END, display_text)
+            
+            count = len(current_results)
+            if count > 0:
+                status_label.config(text=self.lang.t('found_results', count=count) + ":")
+            else:
+                status_label.config(text=self.lang.t('no_results') + ":")
+
         def refresh_search():
             """重新搜索"""
             new_query = search_var.get().strip()
-            if not new_query:
-                return
+            if not new_query: return
             
             if not self.discogs_api:
                 if not self.DISCOGS_TOKEN or self.DISCOGS_TOKEN == "YOUR_DISCOGS_TOKEN_HERE":
@@ -1529,71 +1728,21 @@ class DiscMatcherApp:
                     return
                 self.discogs_api = DiscogsAPI(self.DISCOGS_TOKEN)
             
-            # 清空列表
-            if listbox_ref[0]:
-                listbox_ref[0].delete(0, tk.END)
+            status_label.config(text=f"{self.lang.t('searching')}...")
+            dialog.update()
             
-            # 搜索
             new_results = self.discogs_api.search(new_query)
             current_results.clear()
             current_results.extend(new_results)
             
-            # 更新列表
-            if listbox_ref[0]:
-                for result in new_results:
-                    title = result.get('title', '')
-                    year = result.get('year', '')
-                    label = result.get('label', [])
-                    label_str = ', '.join([l.get('name', '') if isinstance(l, dict) else str(l) for l in label[:2]]) if label else ''
-                    display_text = f"{title} ({year}) - {label_str}"
-                    listbox_ref[0].insert(tk.END, display_text)
-                
-                # 更新提示文本
-                if new_results:
-                    status_label.config(text=self.lang.t('found_results', count=len(new_results)) + ":")
-                else:
-                    status_label.config(text=self.lang.t('no_results') + ":")
+            refresh_ui_list()
+        
+        # 初始填充列表
+        refresh_ui_list()
         
         ttk.Button(search_frame, text=self.lang.t('re_search'), command=refresh_search).pack(side=tk.LEFT, padx=5)
-        
-        # 状态标签
-        if results:
-            status_text = self.lang.t('found_results', count=len(results)) + ":"
-        else:
-            status_text = self.lang.t('no_results') + ":"
-        
-        status_label = ttk.Label(dialog, text=status_text,
-                                font=('Arial', 9),
-                                background=self.bg_color, foreground=self.text_color)
-        status_label.pack(pady=5)
-        
-        # 列表框
-        listbox_frame = ttk.Frame(dialog)
-        listbox_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
-        
-        listbox = tk.Listbox(listbox_frame, height=18, font=('Arial', 9),
-                            bg=self.secondary_bg, fg=self.text_color,
-                            selectbackground=self.accent_color,
-                            selectforeground='white',
-                            borderwidth=0,
-                            highlightthickness=0)
-        scrollbar = ttk.Scrollbar(listbox_frame, orient=tk.VERTICAL, command=listbox.yview)
-        listbox.configure(yscrollcommand=scrollbar.set)
-        
-        listbox_ref[0] = listbox  # 保存引用
-        
-        for result in results:
-            title = result.get('title', '')
-            year = result.get('year', '')
-            label = result.get('label', [])
-            label_str = ', '.join([l.get('name', '') if isinstance(l, dict) else str(l) for l in label[:2]]) if label else ''
-            display_text = f"{title} ({year}) - {label_str}"
-            listbox.insert(tk.END, display_text)
-        
-        listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-        
-        def on_select():
+
+        def on_confirm():
             selection = listbox.curselection()
             if selection and current_results:
                 self.selection_result = current_results[selection[0]]
@@ -1601,38 +1750,26 @@ class DiscMatcherApp:
                     self.open_dialogs.remove((dialog, dialog_width, dialog_height))
                 except:
                     pass
-                self.selection_dialog_active = False  # 清除对话框激活标志
+                self.selection_dialog_active = False
                 dialog.destroy()
-                self.waiting_for_selection.set()  # 通知处理线程继续
-        
-        def on_double_click(event):
-            """双击选择"""
-            selection = listbox.curselection()
-            if selection and current_results:
-                on_select()
-        
+                self.waiting_for_selection.set()
+
         def on_cancel():
             self.selection_result = None
             try:
                 self.open_dialogs.remove((dialog, dialog_width, dialog_height))
             except:
                 pass
-            self.selection_dialog_active = False  # 清除对话框激活标志
+            self.selection_dialog_active = False
             dialog.destroy()
-            self.waiting_for_selection.set()  # 通知处理线程继续（取消）
-        
-        # 绑定双击事件和回车键
-        listbox.bind('<Double-Button-1>', on_double_click)
-        search_entry.bind('<Return>', lambda e: refresh_search())
-        
-        button_frame = ttk.Frame(dialog)
-        button_frame.pack(pady=10)
-        ttk.Button(button_frame, text=self.lang.t('confirm'), command=on_select).pack(side=tk.LEFT, padx=5)
+            self.waiting_for_selection.set()
+
+        # 底部按钮
+        ttk.Button(button_frame, text=self.lang.t('confirm'), command=on_confirm).pack(side=tk.LEFT, padx=5)
         ttk.Button(button_frame, text=self.lang.t('cancel'), command=on_cancel).pack(side=tk.LEFT, padx=5)
         
-        # 注意：dialog.wait_window() 会阻塞主线程，但处理线程在等待 waiting_for_selection
-        # 所以这里不需要 wait_window，因为处理线程会等待事件
-        # dialog.wait_window()  # 已移除，由处理线程的 waiting_for_selection.wait() 控制
+        listbox.bind('<Double-Button-1>', lambda e: on_confirm())
+        search_entry.bind('<Return>', lambda e: refresh_search())
     
     def get_status_text(self, status_code):
         """获取状态文本的翻译"""
@@ -1944,46 +2081,32 @@ class DiscMatcherApp:
     
     def _handle_single_search_results(self, idx: int, folder_path: Path, folder_name: str, existing_info, results):
         """处理单个查询的结果（在主线程中调用）"""
-        # 如果只有一个结果，自动选择
-        if len(results) == 1:
-            # 在后台线程中处理release，避免阻塞UI
-            def process_release():
-                try:
-                    album_info = self.process_release(results[0], folder_path)
-                    if album_info:
-                        # 在主线程中更新UI
-                        self.root.after(0, lambda a=album_info: self._update_single_search_success(idx, folder_path, folder_name, a))
-                except Exception as e:
-                    self.root.after(0, lambda: self._handle_single_search_error(idx, existing_info, e))
+        # 不再自动选择唯一结果，始终显示选择对话框
+        
+        # 确保没有其他对话框正在显示
+        if self.selection_dialog_active:
+            # 如果对话框正在显示，等待它关闭
+            self.root.after(100, lambda r=results: self._handle_single_search_results(idx, folder_path, folder_name, existing_info, r))
+            return
+        
+        # 设置对话框激活标志
+        self.selection_dialog_active = True
+        self.selection_result = None  # 重置选择结果
+        self.waiting_for_selection.clear()  # 清除事件
+        
+        # 显示选择对话框
+        self.show_selection_dialog(idx, results, folder_name)
+        
+        # 在后台线程中等待用户选择
+        def wait_for_selection():
+            # 等待用户选择（无限等待）
+            self.waiting_for_selection.wait()
             
-            process_thread = threading.Thread(target=process_release, daemon=True)
-            process_thread.start()
-        else:
-            # 多个结果或未找到，显示选择对话框
-            # 确保没有其他对话框正在显示
-            if self.selection_dialog_active:
-                # 如果对话框正在显示，等待它关闭
-                self.root.after(100, lambda r=results: self._handle_single_search_results(idx, folder_path, folder_name, existing_info, r))
-                return
-            
-            # 设置对话框激活标志
-            self.selection_dialog_active = True
-            self.selection_result = None  # 重置选择结果
-            self.waiting_for_selection.clear()  # 清除事件
-            
-            # 显示选择对话框
-            self.show_selection_dialog(idx, results, folder_name)
-            
-            # 在后台线程中等待用户选择
-            def wait_for_selection():
-                # 等待用户选择（最多等待5分钟）
-                self.waiting_for_selection.wait(timeout=300)
-                
-                # 在主线程中处理选择结果
-                self.root.after(0, lambda: self._handle_single_search_selection(idx, folder_path, folder_name, existing_info, results))
-            
-            wait_thread = threading.Thread(target=wait_for_selection, daemon=True)
-            wait_thread.start()
+            # 在主线程中处理选择结果
+            self.root.after(0, lambda: self._handle_single_search_selection(idx, folder_path, folder_name, existing_info, results))
+        
+        wait_thread = threading.Thread(target=wait_for_selection, daemon=True)
+        wait_thread.start()
     
     def _update_single_search_success(self, idx: int, folder_path: Path, folder_name: str, album_info):
         """更新单个查询成功的结果（在主线程中调用）"""
@@ -2047,7 +2170,7 @@ class DiscMatcherApp:
         folder_name = values[0]
         
         # 找到对应的文件夹
-        for idx, (folder_path, name, _) in enumerate(self.album_folders):
+        for idx, (folder_path, name, existing_album_info) in enumerate(self.album_folders):
             if name == folder_name:
                 # 创建输入对话框
                 dialog = tk.Toplevel(self.root)
@@ -2257,6 +2380,36 @@ class DiscMatcherApp:
                 
                 scrollable_frame.columnconfigure(0, weight=1)
                 
+                # 如果有现有的专辑信息，预填充表单字段
+                if existing_album_info:
+                    fields['artist'].insert(0, existing_album_info.artist or '')
+                    fields['album_name'].insert(0, existing_album_info.album_name or '')
+                    fields['year'].insert(0, str(existing_album_info.year) if existing_album_info.year else '')
+                    fields['label'].insert(0, ', '.join(existing_album_info.label_names) if existing_album_info.label_names else '')
+                    fields['catalog_no'].insert(0, existing_album_info.catalog_no or '')
+                    fields['country'].insert(0, existing_album_info.country or '')
+                    fields['genre'].insert(0, ', '.join(existing_album_info.genre) if isinstance(existing_album_info.genre, list) and existing_album_info.genre else (existing_album_info.genre if existing_album_info.genre else ''))
+                    fields['style'].insert(0, ', '.join(existing_album_info.style) if isinstance(existing_album_info.style, list) and existing_album_info.style else (existing_album_info.style if existing_album_info.style else ''))
+                    fields['discogs_id'].insert(0, str(existing_album_info.release_id) if existing_album_info.release_id else '')
+                    if existing_album_info.notes:
+                        fields['notes'].insert('1.0', existing_album_info.notes)
+                    
+                    # 填充曲目表
+                    if existing_album_info.tracklist:
+                        tracklist_lines = []
+                        for track in existing_album_info.tracklist:
+                            if isinstance(track, dict):
+                                position = track.get('位置', track.get('position', ''))
+                                title = track.get('标题', track.get('title', ''))
+                                duration = track.get('时长', track.get('duration', ''))
+                                if duration:
+                                    tracklist_lines.append(f"{position}. {title} ({duration})")
+                                else:
+                                    tracklist_lines.append(f"{position}. {title}")
+                            else:
+                                tracklist_lines.append(str(track))
+                        tracklist_text.insert('1.0', '\n'.join(tracklist_lines))
+                
                 def save_manual_input():
                     """保存手动录入的信息"""
                     try:
@@ -2270,13 +2423,18 @@ class DiscMatcherApp:
                             'genre': [g.strip() for g in fields['genre'].get().split(',') if g.strip()],
                             'style': [s.strip() for s in fields['style'].get().split(',') if s.strip()],
                             'label': [{'name': l.strip()} for l in fields['label'].get().split(',') if l.strip()],
-                            'cover_image': '',
-                            'thumb': ''
+                            # 如果有现有专辑信息，保留原有的图片相关字段
+                            'cover_image': existing_album_info.cover_image if existing_album_info else '',
+                            'thumb': existing_album_info.thumb if existing_album_info else ''
                         }
                         
                         # 创建AlbumInfo对象
                         album_info = AlbumInfo(release_data)
                         album_info.notes = fields['notes'].get('1.0', tk.END).strip()
+                        
+                        # 如果有现有专辑信息，保留images字段
+                        if existing_album_info and hasattr(existing_album_info, 'images'):
+                            album_info.images = existing_album_info.images
                         
                         # 解析曲目表
                         tracklist_lines = tracklist_text.get('1.0', tk.END).strip().split('\n')
